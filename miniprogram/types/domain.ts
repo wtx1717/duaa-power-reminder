@@ -30,10 +30,13 @@ export interface SaveConfigPayload {
 
 export interface SaveConfigResult {
   ok: boolean
+  config?: UserPowerConfig
+  error?: string
 }
 
 export interface LoginResult {
   openid: string
+  config?: UserPowerConfig
 }
 
 export interface QueryPowerPayload {
@@ -49,4 +52,12 @@ export interface QueryPowerResult {
   ok: boolean
   error?: string
   queriedAt: string
+}
+
+export interface MeterPowerView {
+  label: string
+  meterId: string
+  loading: boolean
+  displayText?: string
+  result?: QueryPowerResult
 }

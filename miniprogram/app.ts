@@ -1,18 +1,15 @@
-// app.ts
 App<IAppOption>({
   globalData: {},
   onLaunch() {
-    // 展示本地存储能力
+    if (wx.cloud) {
+      wx.cloud.init({
+        env: 'cloud1-d3gx4mdbd073aa68d',
+        traceUser: true,
+      })
+    }
+
     const logs = wx.getStorageSync('logs') || []
     logs.unshift(Date.now())
     wx.setStorageSync('logs', logs)
-
-    // 登录
-    wx.login({
-      success: res => {
-        console.log(res.code)
-        // 发送 res.code 到后台换取 openId, sessionKey, unionId
-      },
-    })
   },
 })

@@ -1,11 +1,13 @@
 import type { PowerQueryResult, QueryPowerInput } from '../shared/types'
 
+interface QueryPowerRuntime {
+  main(event: QueryPowerInput): Promise<PowerQueryResult>
+}
+
+declare const require: (name: string) => QueryPowerRuntime
+
+const runtime = require('./index.js')
+
 export async function main(event: QueryPowerInput): Promise<PowerQueryResult> {
-  // TODO: Fetch, parse, and persist one meter power query result.
-  return {
-    meterId: event.meterId,
-    ok: false,
-    error: 'queryPower is not implemented',
-    queriedAt: new Date(),
-  }
+  return runtime.main(event)
 }

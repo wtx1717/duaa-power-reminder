@@ -1,24 +1,19 @@
-import { COLLECTIONS, getCloudContext, getDatabase } from '../shared/db'
-import type { Meter, SaveConfigInput, SubscribeStatus, UserConfig } from '../shared/types'
+const cloud = require('wx-server-sdk')
 
-export interface SaveConfigResult {
-  ok: boolean
-  config?: Omit<UserConfig, '_id' | 'createdAt' | 'updatedAt'> & {
-    createdAt?: Date
-    updatedAt?: Date
-  }
-  error?: string
+const COLLECTIONS = {
+  userConfigs: 'user_configs',
+  meters: 'meters',
 }
 
-interface StoredDocument {
-  _id?: string
-}
+cloud.init({
+  env: cloud.DYNAMIC_CURRENT_ENV,
+})
 
-function normalizeMeterId(value: string): string {
+function normalizeMeterId(value) {
   return String(value || '').trim()
 }
 
-function validateInput(input: SaveConfigInput): SaveConfigInput {
+function validateInput(input) {
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
   const thresholdKwh = Number(input.thresholdKwh)
@@ -47,14 +42,13 @@ function validateInput(input: SaveConfigInput): SaveConfigInput {
   }
 }
 
-async function upsertMeter(meterId: string, type: Meter['type']): Promise<void> {
-  const db = getDatabase()
+async function upsertMeter(db, meterId, type) {
   const now = db.serverDate()
-  const meters = db.collection<Meter & StoredDocument>(COLLECTIONS.meters)
+  const meters = db.collection(COLLECTIONS.meters)
   const existing = await meters.where({ meterId }).get()
   const current = existing.data[0]
 
-  if (current?._id) {
+  if (current && current._id) {
     await meters.doc(current._id).update({
       data: {
         type,
@@ -76,27 +70,29 @@ async function upsertMeter(meterId: string, type: Meter['type']): Promise<void> 
   })
 }
 
-export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
-  const { OPENID } = getCloudContext()
+exports.main = async (event) => {
+  const { OPENID } = cloud.getWXContext()
 
   if (!OPENID) {
     throw new Error('无法获取微信用户 openid')
   }
 
   const input = validateInput(event)
-  const db = getDatabase()
+  const db = cloud.database()
   const now = db.serverDate()
-  const userConfigs = db.collection<UserConfig & StoredDocument>(COLLECTIONS.userConfigs)
+  const userConfigs = db.collection(COLLECTIONS.userConfigs)
   const existing = await userConfigs.where({ openid: OPENID }).get()
   const current = existing.data[0]
-  const subscribeStatus: SubscribeStatus = current?.subscribeStatus || 'unknown'
+  const subscribeStatus = current && current.subscribeStatus
+    ? current.subscribeStatus
+    : 'unknown'
   const config = {
     openid: OPENID,
     ...input,
     subscribeStatus,
   }
 
-  if (current?._id) {
+  if (current && current._id) {
     await userConfigs.doc(current._id).update({
       data: {
         ...config,
@@ -113,8 +109,8 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
     })
   }
 
-  await upsertMeter(input.lightMeterId, 'light')
-  await upsertMeter(input.acMeterId, 'ac')
+  await upsertMeter(db, input.lightMeterId, 'light')
+  await upsertMeter(db, input.acMeterId, 'ac')
 
   return {
     ok: true,

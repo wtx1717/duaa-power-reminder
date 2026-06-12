@@ -1,28 +1,110 @@
-<!--index.wxml-->
-<navigation-bar title="Weixin" back="{{false}}" color="black" background="#FFF"></navigation-bar>
-<scroll-view class="scrollarea" scroll-y type="list">
-  <view class="container">
-    <view class="userinfo">
-      <block wx:if="{{canIUseNicknameComp && !hasUserInfo}}">
-        <button class="avatar-wrapper" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
-          <image class="avatar" src="{{userInfo.avatarUrl}}"></image>
-        </button>
-        <view class="nickname-wrapper">
-          <text class="nickname-label">昵称</text>
-          <input type="nickname" class="nickname-input" placeholder="请输入昵称" bind:change="onInputChange" />
+<navigation-bar title="宿舍电量提醒" back="{{false}}" color="black" background="#FFF"></navigation-bar>
+
+<scroll-view class="page" scroll-y type="list">
+  <view class="header">
+    <view class="title">duaa宿舍电量提醒</view>
+    <view class="subtitle">{{openidText}}</view>
+  </view>
+
+  <view class="form">
+    <view class="field">
+      <text class="label">照明电表号</text>
+      <input
+        class="input"
+        value="{{lightMeterId}}"
+        placeholder="请输入宿舍照明电表号"
+        placeholder-class="placeholder"
+        bindinput="onLightMeterInput"
+      />
+    </view>
+
+    <view class="field">
+      <text class="label">空调电表号</text>
+      <input
+        class="input"
+        value="{{acMeterId}}"
+        placeholder="请输入宿舍空调电表号"
+        placeholder-class="placeholder"
+        bindinput="onAcMeterInput"
+      />
+    </view>
+
+    <view class="field">
+      <text class="label">提醒阈值 kWh</text>
+      <input
+        class="input"
+        type="digit"
+        value="{{thresholdKwh}}"
+        placeholder="例如 20"
+        placeholder-class="placeholder"
+        bindinput="onThresholdInput"
+      />
+    </view>
+
+    <view class="switch-row">
+      <view>
+        <view class="label">低电量提醒</view>
+        <view class="hint">后续将基于订阅消息发送提醒</view>
+      </view>
+      <switch checked="{{reminderEnabled}}" bindchange="onReminderSwitch" color="#1f7a5a" />
+    </view>
+
+    <button
+      class="save-button"
+      type="primary"
+      loading="{{saving}}"
+      disabled="{{loading || saving || queryingAll}}"
+      bindtap="onSaveConfig"
+    >
+      保存配置
+    </button>
+
+    <button
+      class="query-button"
+      loading="{{queryingAll}}"
+      disabled="{{loading || saving || queryingAll}}"
+      bindtap="onQueryPower"
+    >
+      查询当前电量
+    </button>
+
+    <button
+      class="secondary-button"
+      loading="{{loading}}"
+      disabled="{{loading || saving || queryingAll}}"
+      bindtap="login"
+    >
+      重新登录
+    </button>
+
+    <view class="result-list">
+      <view class="result-item">
+        <view class="result-header">
+          <text class="result-title">照明电表</text>
+          <text class="result-meter">{{lightPower.meterId || '未填写'}}</text>
         </view>
-      </block>
-      <block wx:elif="{{!hasUserInfo}}">
-        <button wx:if="{{canIUseGetUserProfile}}" bindtap="getUserProfile"> 获取头像昵称 </button>
-        <view wx:else> 请使用2.10.4及以上版本基础库 </view>
-      </block>
-      <block wx:else>
-        <image bindtap="bindViewTap" class="userinfo-avatar" src="{{userInfo.avatarUrl}}" mode="cover"></image>
-        <text class="userinfo-nickname">{{userInfo.nickName}}</text>
-      </block>
+        <view wx:if="{{lightPower.loading}}" class="result-text">查询中...</view>
+        <view wx:elif="{{lightPower.result}}" class="result-text {{lightPower.result.ok ? 'success' : 'error'}}">
+          {{lightPower.displayText}}
+        </view>
+        <view wx:else class="result-text muted">尚未查询</view>
+        <view wx:if="{{lightPower.result.address}}" class="result-address">{{lightPower.result.address}}</view>
+      </view>
+
+      <view class="result-item">
+        <view class="result-header">
+          <text class="result-title">空调电表</text>
+          <text class="result-meter">{{acPower.meterId || '未填写'}}</text>
+        </view>
+        <view wx:if="{{acPower.loading}}" class="result-text">查询中...</view>
+        <view wx:elif="{{acPower.result}}" class="result-text {{acPower.result.ok ? 'success' : 'error'}}">
+          {{acPower.displayText}}
+        </view>
+        <view wx:else class="result-text muted">尚未查询</view>
+        <view wx:if="{{acPower.result.address}}" class="result-address">{{acPower.result.address}}</view>
+      </view>
     </view>
-    <view class="usermotto">
-      <text class="user-motto">{{motto}}</text>
-    </view>
+
+    <view wx:if="{{message}}" class="message">{{message}}</view>
   </view>
 </scroll-view>
