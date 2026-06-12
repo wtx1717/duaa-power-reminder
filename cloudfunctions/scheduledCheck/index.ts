@@ -1,14 +1,25 @@
 export interface ScheduledCheckResult {
   ok: boolean
+  locked?: boolean
+  lockDisabled?: boolean
   checkedMeters: number
   sentNotifications: number
+  failedNotifications?: number
+  skippedNotifications?: number
+  errors?: Array<{
+    meterId?: string
+    error: string
+  }>
 }
 
+interface ScheduledCheckRuntime {
+  main(): Promise<ScheduledCheckResult>
+}
+
+declare const require: (name: string) => ScheduledCheckRuntime
+
+const runtime = require('./index.js')
+
 export async function main(): Promise<ScheduledCheckResult> {
-  // TODO: Acquire job lock, query due meters, update planner, and create notification records.
-  return {
-    ok: false,
-    checkedMeters: 0,
-    sentNotifications: 0,
-  }
+  return runtime.main()
 }

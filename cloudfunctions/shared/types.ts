@@ -24,6 +24,7 @@ export interface Meter {
   lastRemainingKwh?: number
   lastQueriedAt?: Date
   nextCheckAt?: Date
+  checkIntervalMinutes?: number
   failCount: number
   lastError?: string
   createdAt: Date
@@ -68,6 +69,8 @@ export interface SaveConfigInput {
   acMeterId: string
   thresholdKwh: number
   reminderEnabled: boolean
+  nextCheckAt?: Date | string
+  checkIntervalMinutes?: number | string
 }
 
 export interface QueryPowerInput {

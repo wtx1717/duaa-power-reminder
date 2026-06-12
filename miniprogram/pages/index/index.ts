@@ -1,8 +1,13 @@
 import { loginWithWechat } from '../../services/auth'
-import { queryPower, savePowerConfig } from '../../services/meter'
+import { queryPower, runScheduledCheck, savePowerConfig } from '../../services/meter'
 import { requestPowerNotificationSubscribe } from '../../services/notification'
 import type { PowerNotificationSubscribeResult } from '../../services/notification'
-import type { MeterPowerView, QueryPowerResult, SaveConfigPayload } from '../../types/domain'
+import type {
+  MeterPowerView,
+  QueryPowerResult,
+  SaveConfigPayload,
+  ScheduledCheckResult,
+} from '../../types/domain'
 
 type InputEvent = {
   detail: {
@@ -22,6 +27,43 @@ function maskOpenid(openid: string): string {
   }
 
   return `${openid.slice(0, 4)}****${openid.slice(-4)}`
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+function getDefaultNextCheckAt(): Date {
+  const date = new Date()
+  date.setMinutes(date.getMinutes() + 10)
+  date.setSeconds(0, 0)
+  return date
+}
+
+function toDate(value?: string): Date | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function toPickerDate(value: Date): string {
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+}
+
+function toPickerTime(value: Date): string {
+  return `${pad(value.getHours())}:${pad(value.getMinutes())}`
+}
+
+function formatScheduleText(date: string, time: string): string {
+  return `${date} ${time}`
+}
+
+function parsePickerDateTime(date: string, time: string): Date | undefined {
+  const value = new Date(`${date}T${time}:00`)
+  return Number.isNaN(value.getTime()) ? undefined : value
 }
 
 function createMeterView(
@@ -63,6 +105,20 @@ function formatSubscribeMessage(status: PowerNotificationSubscribeResult): strin
   return ''
 }
 
+function formatScheduledCheckMessage(result: ScheduledCheckResult): string {
+  if (result.locked) {
+    return '定时查询正在执行中，请稍后再试'
+  }
+
+  const failed = result.failedNotifications || 0
+  const skipped = result.skippedNotifications || 0
+  const errorCount = result.errors ? result.errors.length : 0
+  const errorText = errorCount > 0 ? `，异常 ${errorCount} 个` : ''
+  const lockText = result.lockDisabled ? '（未启用任务锁）' : ''
+
+  return `定时查询完成${lockText}：处理 ${result.checkedMeters} 个电表，发送 ${result.sentNotifications} 条，失败 ${failed} 条，跳过 ${skipped} 条${errorText}`
+}
+
 Page({
   data: {
     openid: '',
@@ -74,6 +130,14 @@ Page({
     loading: true,
     saving: false,
     queryingAll: false,
+    scheduledChecking: false,
+    scheduledDate: toPickerDate(getDefaultNextCheckAt()),
+    scheduledTime: toPickerTime(getDefaultNextCheckAt()),
+    scheduledCheckText: formatScheduleText(
+      toPickerDate(getDefaultNextCheckAt()),
+      toPickerTime(getDefaultNextCheckAt()),
+    ),
+    checkIntervalMinutes: '1440',
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
@@ -97,6 +161,18 @@ Page({
 
       const lightMeterId = config ? config.lightMeterId : ''
       const acMeterId = config ? config.acMeterId : ''
+      const nextCheckAt = toDate(result.meters && result.meters.light
+        ? result.meters.light.nextCheckAt
+        : undefined) || toDate(result.meters && result.meters.ac
+          ? result.meters.ac.nextCheckAt
+          : undefined) || getDefaultNextCheckAt()
+      const scheduledDate = toPickerDate(nextCheckAt)
+      const scheduledTime = toPickerTime(nextCheckAt)
+      const checkIntervalMinutes = result.meters && result.meters.light && result.meters.light.checkIntervalMinutes
+        ? String(result.meters.light.checkIntervalMinutes)
+        : result.meters && result.meters.ac && result.meters.ac.checkIntervalMinutes
+          ? String(result.meters.ac.checkIntervalMinutes)
+          : this.data.checkIntervalMinutes
 
       this.setData({
         openid: result.openid,
@@ -109,6 +185,10 @@ Page({
         reminderEnabled: config && config.reminderEnabled !== undefined
           ? config.reminderEnabled
           : true,
+        scheduledDate,
+        scheduledTime,
+        scheduledCheckText: formatScheduleText(scheduledDate, scheduledTime),
+        checkIntervalMinutes,
         lightPower: createMeterView('照明', lightMeterId),
         acPower: createMeterView('空调', acMeterId),
       })
@@ -151,13 +231,39 @@ Page({
     })
   },
 
+  onScheduledDateChange(event: InputEvent) {
+    const scheduledDate = event.detail.value
+    this.setData({
+      scheduledDate,
+      scheduledCheckText: formatScheduleText(scheduledDate, this.data.scheduledTime),
+    })
+  },
+
+  onScheduledTimeChange(event: InputEvent) {
+    const scheduledTime = event.detail.value
+    this.setData({
+      scheduledTime,
+      scheduledCheckText: formatScheduleText(this.data.scheduledDate, scheduledTime),
+    })
+  },
+
+  onCheckIntervalInput(event: InputEvent) {
+    this.setData({
+      checkIntervalMinutes: event.detail.value,
+    })
+  },
+
   buildSavePayload(): SaveConfigPayload | undefined {
     const thresholdKwh = Number(this.data.thresholdKwh)
+    const nextCheckAt = parsePickerDateTime(this.data.scheduledDate, this.data.scheduledTime)
+    const checkIntervalMinutes = Number(this.data.checkIntervalMinutes)
     const payload: SaveConfigPayload = {
       lightMeterId: this.data.lightMeterId.trim(),
       acMeterId: this.data.acMeterId.trim(),
       thresholdKwh,
       reminderEnabled: this.data.reminderEnabled,
+      nextCheckAt: nextCheckAt ? nextCheckAt.toISOString() : undefined,
+      checkIntervalMinutes,
     }
 
     if (!payload.lightMeterId) {
@@ -177,6 +283,16 @@ Page({
 
     if (!Number.isFinite(payload.thresholdKwh) || payload.thresholdKwh <= 0) {
       this.setData({ message: '提醒阈值必须大于 0' })
+      return undefined
+    }
+
+    if (!nextCheckAt) {
+      this.setData({ message: '定时查询时间不正确' })
+      return undefined
+    }
+
+    if (!Number.isFinite(checkIntervalMinutes) || checkIntervalMinutes < 5) {
+      this.setData({ message: '查询间隔不能小于 5 分钟' })
       return undefined
     }
 
@@ -268,6 +384,28 @@ Page({
     } finally {
       this.setData({
         queryingAll: false,
+      })
+    }
+  },
+
+  async onRunScheduledCheck() {
+    this.setData({
+      scheduledChecking: true,
+      message: '',
+    })
+
+    try {
+      const result = await runScheduledCheck()
+      this.setData({
+        message: formatScheduledCheckMessage(result),
+      })
+    } catch (error) {
+      this.setData({
+        message: error instanceof Error ? error.message : '定时查询执行失败，请稍后重试',
+      })
+    } finally {
+      this.setData({
+        scheduledChecking: false,
       })
     }
   },

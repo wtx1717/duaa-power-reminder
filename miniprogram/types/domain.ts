@@ -17,9 +17,11 @@ export interface UserPowerConfig {
 export interface MeterSnapshot {
   meterId: string
   type: MeterType
-  remainingKwh?: number
+  lastRemainingKwh?: number
   lastQueriedAt?: string
+  remainingKwh?: number
   nextCheckAt?: string
+  checkIntervalMinutes?: number
 }
 
 export interface SaveConfigPayload {
@@ -27,6 +29,8 @@ export interface SaveConfigPayload {
   acMeterId: string
   thresholdKwh: number
   reminderEnabled: boolean
+  nextCheckAt?: string
+  checkIntervalMinutes?: number
 }
 
 export interface SaveConfigResult {
@@ -38,6 +42,10 @@ export interface SaveConfigResult {
 export interface LoginResult {
   openid: string
   config?: UserPowerConfig
+  meters?: {
+    light?: MeterSnapshot
+    ac?: MeterSnapshot
+  }
 }
 
 export interface QueryPowerPayload {
@@ -54,6 +62,20 @@ export interface QueryPowerResult {
   ok: boolean
   error?: string
   queriedAt: string
+}
+
+export interface ScheduledCheckResult {
+  ok: boolean
+  locked?: boolean
+  lockDisabled?: boolean
+  checkedMeters: number
+  sentNotifications: number
+  failedNotifications?: number
+  skippedNotifications?: number
+  errors?: Array<{
+    meterId?: string
+    error: string
+  }>
 }
 
 export interface MeterPowerView {

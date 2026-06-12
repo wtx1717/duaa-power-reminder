@@ -13,10 +13,38 @@ function normalizeMeterId(value) {
   return String(value || '').trim()
 }
 
+function parseNextCheckAt(value) {
+  if (!value) {
+    return undefined
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('定时查询时间不正确')
+  }
+
+  return date
+}
+
+function parseCheckIntervalMinutes(value) {
+  const minutes = value === undefined || value === null || value === ''
+    ? 24 * 60
+    : Number(value)
+
+  if (!Number.isFinite(minutes) || minutes < 5) {
+    throw new Error('查询间隔不能小于 5 分钟')
+  }
+
+  return Math.floor(minutes)
+}
+
 function validateInput(input) {
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
   const thresholdKwh = Number(input.thresholdKwh)
+  const nextCheckAt = parseNextCheckAt(input.nextCheckAt)
+  const checkIntervalMinutes = parseCheckIntervalMinutes(input.checkIntervalMinutes)
 
   if (!lightMeterId) {
     throw new Error('请填写宿舍照明电表号')
@@ -39,22 +67,28 @@ function validateInput(input) {
     acMeterId,
     thresholdKwh,
     reminderEnabled: Boolean(input.reminderEnabled),
+    nextCheckAt,
+    checkIntervalMinutes,
   }
 }
 
-async function upsertMeter(db, meterId, type) {
+async function upsertMeter(db, meterId, type, nextCheckAt, checkIntervalMinutes) {
   const now = db.serverDate()
   const meters = db.collection(COLLECTIONS.meters)
   const existing = await meters.where({ meterId }).get()
   const current = existing.data[0]
+  const data = {
+    type,
+    checkIntervalMinutes,
+    updatedAt: now,
+  }
+
+  if (nextCheckAt) {
+    data.nextCheckAt = nextCheckAt
+  }
 
   if (current && current._id) {
-    await meters.doc(current._id).update({
-      data: {
-        type,
-        updatedAt: now,
-      },
-    })
+    await meters.doc(current._id).update({ data })
     return
   }
 
@@ -63,7 +97,8 @@ async function upsertMeter(db, meterId, type) {
       meterId,
       type,
       failCount: 0,
-      nextCheckAt: new Date(),
+      nextCheckAt: nextCheckAt || new Date(),
+      checkIntervalMinutes,
       createdAt: now,
       updatedAt: now,
     },
@@ -88,7 +123,10 @@ exports.main = async (event) => {
     : 'unknown'
   const config = {
     openid: OPENID,
-    ...input,
+    lightMeterId: input.lightMeterId,
+    acMeterId: input.acMeterId,
+    thresholdKwh: input.thresholdKwh,
+    reminderEnabled: input.reminderEnabled,
     subscribeStatus,
   }
 
@@ -109,8 +147,8 @@ exports.main = async (event) => {
     })
   }
 
-  await upsertMeter(db, input.lightMeterId, 'light')
-  await upsertMeter(db, input.acMeterId, 'ac')
+  await upsertMeter(db, input.lightMeterId, 'light', input.nextCheckAt, input.checkIntervalMinutes)
+  await upsertMeter(db, input.acMeterId, 'ac', input.nextCheckAt, input.checkIntervalMinutes)
 
   return {
     ok: true,

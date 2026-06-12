@@ -14,14 +14,47 @@ interface StoredDocument {
   _id?: string
 }
 
+interface ValidatedSaveConfigInput extends SaveConfigInput {
+  nextCheckAt?: Date
+  checkIntervalMinutes: number
+}
+
 function normalizeMeterId(value: string): string {
   return String(value || '').trim()
 }
 
-function validateInput(input: SaveConfigInput): SaveConfigInput {
+function parseNextCheckAt(value: SaveConfigInput['nextCheckAt']): Date | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('定时查询时间不正确')
+  }
+
+  return date
+}
+
+function parseCheckIntervalMinutes(value: SaveConfigInput['checkIntervalMinutes']): number {
+  const minutes = value === undefined || value === null || value === ''
+    ? 24 * 60
+    : Number(value)
+
+  if (!Number.isFinite(minutes) || minutes < 5) {
+    throw new Error('查询间隔不能小于 5 分钟')
+  }
+
+  return Math.floor(minutes)
+}
+
+function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
   const thresholdKwh = Number(input.thresholdKwh)
+  const nextCheckAt = parseNextCheckAt(input.nextCheckAt)
+  const checkIntervalMinutes = parseCheckIntervalMinutes(input.checkIntervalMinutes)
 
   if (!lightMeterId) {
     throw new Error('请填写宿舍照明电表号')
@@ -44,23 +77,34 @@ function validateInput(input: SaveConfigInput): SaveConfigInput {
     acMeterId,
     thresholdKwh,
     reminderEnabled: Boolean(input.reminderEnabled),
+    nextCheckAt,
+    checkIntervalMinutes,
   }
 }
 
-async function upsertMeter(meterId: string, type: Meter['type']): Promise<void> {
+async function upsertMeter(
+  meterId: string,
+  type: Meter['type'],
+  nextCheckAt?: Date,
+  checkIntervalMinutes = 24 * 60,
+): Promise<void> {
   const db = getDatabase()
   const now = db.serverDate()
   const meters = db.collection<Meter & StoredDocument>(COLLECTIONS.meters)
   const existing = await meters.where({ meterId }).get()
   const current = existing.data[0]
+  const data: Record<string, unknown> = {
+    type,
+    checkIntervalMinutes,
+    updatedAt: now,
+  }
+
+  if (nextCheckAt) {
+    data.nextCheckAt = nextCheckAt
+  }
 
   if (current?._id) {
-    await meters.doc(current._id).update({
-      data: {
-        type,
-        updatedAt: now,
-      },
-    })
+    await meters.doc(current._id).update({ data })
     return
   }
 
@@ -69,7 +113,8 @@ async function upsertMeter(meterId: string, type: Meter['type']): Promise<void> 
       meterId,
       type,
       failCount: 0,
-      nextCheckAt: new Date(),
+      nextCheckAt: nextCheckAt || new Date(),
+      checkIntervalMinutes,
       createdAt: now,
       updatedAt: now,
     },
@@ -92,7 +137,10 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
   const subscribeStatus: SubscribeStatus = current?.subscribeStatus || 'unknown'
   const config = {
     openid: OPENID,
-    ...input,
+    lightMeterId: input.lightMeterId,
+    acMeterId: input.acMeterId,
+    thresholdKwh: input.thresholdKwh,
+    reminderEnabled: input.reminderEnabled,
     subscribeStatus,
   }
 
@@ -113,8 +161,8 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
     })
   }
 
-  await upsertMeter(input.lightMeterId, 'light')
-  await upsertMeter(input.acMeterId, 'ac')
+  await upsertMeter(input.lightMeterId, 'light', input.nextCheckAt, input.checkIntervalMinutes)
+  await upsertMeter(input.acMeterId, 'ac', input.nextCheckAt, input.checkIntervalMinutes)
 
   return {
     ok: true,

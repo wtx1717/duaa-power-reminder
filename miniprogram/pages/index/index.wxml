@@ -41,6 +41,40 @@
       />
     </view>
 
+    <view class="field">
+      <text class="label">下次自动查询时间</text>
+      <view class="schedule-row">
+        <picker
+          mode="date"
+          value="{{scheduledDate}}"
+          bindchange="onScheduledDateChange"
+        >
+          <view class="picker-value">{{scheduledDate}}</view>
+        </picker>
+        <picker
+          mode="time"
+          value="{{scheduledTime}}"
+          bindchange="onScheduledTimeChange"
+        >
+          <view class="picker-value">{{scheduledTime}}</view>
+        </picker>
+      </view>
+      <view class="hint">当前设置：{{scheduledCheckText}}</view>
+    </view>
+
+    <view class="field">
+      <text class="label">查询间隔（分钟）</text>
+      <input
+        class="input"
+        type="number"
+        value="{{checkIntervalMinutes}}"
+        placeholder="例如 1440"
+        placeholder-class="placeholder"
+        bindinput="onCheckIntervalInput"
+      />
+      <view class="hint">调试可设 10 或 30，正式每天一次可设 1440</view>
+    </view>
+
     <view class="switch-row">
       <view>
         <view class="label">低电量提醒</view>
@@ -53,7 +87,7 @@
       class="save-button"
       type="primary"
       loading="{{saving}}"
-      disabled="{{loading || saving || queryingAll}}"
+      disabled="{{loading || saving || queryingAll || scheduledChecking}}"
       bindtap="onSaveConfig"
     >
       保存配置
@@ -62,16 +96,25 @@
     <button
       class="query-button"
       loading="{{queryingAll}}"
-      disabled="{{loading || saving || queryingAll}}"
+      disabled="{{loading || saving || queryingAll || scheduledChecking}}"
       bindtap="onQueryPower"
     >
       查询当前电量
     </button>
 
     <button
+      class="debug-button"
+      loading="{{scheduledChecking}}"
+      disabled="{{loading || saving || queryingAll || scheduledChecking}}"
+      bindtap="onRunScheduledCheck"
+    >
+      调试：执行一次自动查询
+    </button>
+
+    <button
       class="secondary-button"
       loading="{{loading}}"
-      disabled="{{loading || saving || queryingAll}}"
+      disabled="{{loading || saving || queryingAll || scheduledChecking}}"
       bindtap="login"
     >
       重新登录
