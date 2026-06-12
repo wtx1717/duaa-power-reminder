@@ -79,19 +79,22 @@ Page({
       const result = await loginWithWechat()
       const app = getApp<IAppOption>()
       app.globalData.openid = result.openid
+      const config = result.config
 
-      const lightMeterId = result.config?.lightMeterId || ''
-      const acMeterId = result.config?.acMeterId || ''
+      const lightMeterId = config ? config.lightMeterId : ''
+      const acMeterId = config ? config.acMeterId : ''
 
       this.setData({
         openid: result.openid,
         openidText: `已登录 ${maskOpenid(result.openid)}`,
         lightMeterId,
         acMeterId,
-        thresholdKwh: result.config?.thresholdKwh
-          ? String(result.config.thresholdKwh)
+        thresholdKwh: config && config.thresholdKwh
+          ? String(config.thresholdKwh)
           : this.data.thresholdKwh,
-        reminderEnabled: result.config?.reminderEnabled ?? true,
+        reminderEnabled: config && config.reminderEnabled !== undefined
+          ? config.reminderEnabled
+          : true,
         lightPower: createMeterView('照明', lightMeterId),
         acPower: createMeterView('空调', acMeterId),
       })
