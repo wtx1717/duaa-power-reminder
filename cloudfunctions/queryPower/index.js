@@ -24,6 +24,8 @@ function stripTags(value) {
 
 function decodeHtml(value) {
   return stripTags(value)
+    .replace(/&#x([0-9a-f]+);/gi, (_entity, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_entity, code) => String.fromCharCode(Number(code)))
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -63,8 +65,17 @@ function parseRemainingKwh(html) {
 }
 
 function parseCutoffTime(html) {
-  const match = html.match(/\[[^\]]*?\s*([^\]]+)\]/)
-  return match ? decodeHtml(match[1]) : undefined
+  const matches = html.matchAll(/\[([^\]]+)\]/g)
+
+  for (const match of matches) {
+    const value = decodeHtml(match[1])
+
+    if (/\d{4}[-/年]\d{1,2}[-/月]\d{1,2}|\d{1,2}:\d{2}/.test(value)) {
+      return value
+    }
+  }
+
+  return undefined
 }
 
 function parseAddress(html) {
