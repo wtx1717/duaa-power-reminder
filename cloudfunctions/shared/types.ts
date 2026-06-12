@@ -1,6 +1,7 @@
 export type MeterType = 'light' | 'ac'
 
 export type SubscribeStatus = 'unknown' | 'accepted' | 'rejected'
+export type NotificationSubscribeStatus = 'accepted' | 'rejected' | 'skipped'
 
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'skipped'
 
@@ -72,4 +73,5 @@ export interface SaveConfigInput {
 export interface QueryPowerInput {
   meterId: string
   type: MeterType
+  notificationSubscribeStatus?: NotificationSubscribeStatus
 }

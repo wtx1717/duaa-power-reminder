@@ -91,11 +91,14 @@
 | `_id` | string | 是 | 云数据库文档 ID |
 | `openid` | string | 是 | 接收提醒的用户 openid |
 | `meterId` | string | 是 | 触发提醒的电表号 |
+| `type` | string | 否 | 本次提醒对应的电表类型：`light` 或 `ac` |
 | `remainingKwh` | number | 是 | 触发时剩余电量 |
 | `thresholdKwh` | number | 是 | 用户配置的提醒阈值 |
 | `sentAt` | Date | 是 | 发送或尝试发送时间 |
 | `status` | string | 是 | 状态：`pending`、`sent`、`failed`、`skipped` |
 | `error` | string | 否 | 发送失败原因 |
+
+手动查询订阅消息 MVP 阶段，`queryPower` 只对照明电表查询结果发送订阅消息。照明电量查询成功且能解析到剩余电量后写入通知记录：用户接受订阅授权时尝试发送，结果记录为 `sent` 或 `failed`；用户拒绝授权或授权流程不可用时不发送，记录为 `skipped`。发送失败不会影响本次电量查询结果返回。
 
 索引建议：
 

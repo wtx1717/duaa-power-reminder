@@ -1,5 +1,7 @@
 import { loginWithWechat } from '../../services/auth'
 import { queryPower, savePowerConfig } from '../../services/meter'
+import { requestPowerNotificationSubscribe } from '../../services/notification'
+import type { PowerNotificationSubscribeResult } from '../../services/notification'
 import type { MeterPowerView, QueryPowerResult, SaveConfigPayload } from '../../types/domain'
 
 type InputEvent = {
@@ -47,6 +49,18 @@ function formatPowerResult(result: QueryPowerResult): string {
     : `${result.remainingKwh} kWh`
   const cutoff = result.cutoffTime ? `，截止 ${result.cutoffTime}` : ''
   return `剩余 ${remaining}${cutoff}`
+}
+
+function formatSubscribeMessage(status: PowerNotificationSubscribeResult): string {
+  if (status === 'rejected') {
+    return '，已拒绝订阅，本次仅查询电量'
+  }
+
+  if (status === 'skipped') {
+    return '，订阅授权未完成，本次仅查询电量'
+  }
+
+  return ''
 }
 
 Page({
@@ -216,6 +230,9 @@ Page({
       return
     }
 
+    const subscribeStatus = await requestPowerNotificationSubscribe()
+    const subscribeMessage = formatSubscribeMessage(subscribeStatus)
+
     this.setData({
       queryingAll: true,
       message: '',
@@ -228,17 +245,19 @@ Page({
         queryPower({
           meterId: payload.lightMeterId,
           type: 'light',
+          notificationSubscribeStatus: subscribeStatus,
         }),
         queryPower({
           meterId: payload.acMeterId,
           type: 'ac',
+          notificationSubscribeStatus: subscribeStatus,
         }),
       ])
 
       this.setData({
         lightPower: createMeterView('照明', payload.lightMeterId, lightResult),
         acPower: createMeterView('空调', payload.acMeterId, acResult),
-        message: lightResult.ok || acResult.ok ? '查询完成' : '两个电表都查询失败',
+        message: `${lightResult.ok || acResult.ok ? '查询完成' : '两个电表都查询失败'}${subscribeMessage}`,
       })
     } catch (error) {
       this.setData({

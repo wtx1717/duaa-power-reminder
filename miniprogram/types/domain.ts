@@ -1,6 +1,7 @@
 export type MeterType = 'light' | 'ac'
 
 export type SubscribeStatus = 'unknown' | 'accepted' | 'rejected'
+export type NotificationSubscribeStatus = 'accepted' | 'rejected' | 'skipped'
 
 export interface UserPowerConfig {
   openid: string
@@ -42,6 +43,7 @@ export interface LoginResult {
 export interface QueryPowerPayload {
   meterId: string
   type: MeterType
+  notificationSubscribeStatus?: NotificationSubscribeStatus
 }
 
 export interface QueryPowerResult {

@@ -6,10 +6,13 @@ const COLLECTIONS = {
   userConfigs: 'user_configs',
   meters: 'meters',
   powerRecords: 'power_records',
+  notificationRecords: 'notification_records',
 }
 
 const POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
+// TODO: Move this template id to a cloud environment variable before production.
+const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -146,6 +149,8 @@ async function assertMeterBelongsToUser(db, openid, meterId, type) {
   if (expectedMeterId !== meterId) {
     throw new Error('电表号与当前用户配置不一致，请先保存配置')
   }
+
+  return config
 }
 
 async function updateMeter(db, record, type) {
@@ -177,9 +182,153 @@ async function updateMeter(db, record, type) {
   })
 }
 
+function normalizeSubscribeStatus(value) {
+  return value === 'accepted' || value === 'rejected' || value === 'skipped'
+    ? value
+    : 'skipped'
+}
+
+function pad(value) {
+  return String(value).padStart(2, '0')
+}
+
+function formatDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function limitThing(value) {
+  return String(value || '').slice(0, 20)
+}
+
+function getMeterTypeLabel(type) {
+  return type === 'ac' ? '空调电表' : '照明电表'
+}
+
+async function updateSubscribeStatus(db, config, subscribeStatus) {
+  if (!config || !config._id || subscribeStatus === 'skipped') {
+    return
+  }
+
+  try {
+    await db.collection(COLLECTIONS.userConfigs).doc(config._id).update({
+      data: {
+        subscribeStatus,
+        updatedAt: db.serverDate(),
+      },
+    })
+  } catch (error) {
+    console.error('Failed to update subscribe status', error)
+  }
+}
+
+async function recordNotification(db, input) {
+  const data = {
+    openid: input.openid,
+    meterId: input.record.meterId,
+    remainingKwh: input.record.remainingKwh,
+    thresholdKwh: input.thresholdKwh,
+    sentAt: db.serverDate(),
+    status: input.result.status,
+    type: input.type,
+  }
+
+  if (input.result.error) {
+    data.error = input.result.error
+  }
+
+  await db.collection(COLLECTIONS.notificationRecords).add({
+    data,
+  })
+}
+
+async function sendPowerQueryNotification(input) {
+  if (!input.subscribeAccepted) {
+    return {
+      status: 'skipped',
+      error: 'User did not accept subscribe message authorization for this query',
+    }
+  }
+
+  if (!input.openid) {
+    return {
+      status: 'skipped',
+      error: 'Missing openid',
+    }
+  }
+
+  try {
+    await cloud.openapi.subscribeMessage.send({
+      touser: input.openid,
+      templateId: LOW_POWER_TEMPLATE_ID,
+      page: 'pages/index/index',
+      data: {
+        // Template keywords: 剩余电量、公寓地址、备注、抄表时间.
+        character_string1: {
+          value: String(input.record.remainingKwh),
+        },
+        thing2: {
+          value: limitThing(input.record.address || '未解析到公寓地址'),
+        },
+        thing3: {
+          value: limitThing(getMeterTypeLabel(input.type)),
+        },
+        time4: {
+          value: formatDateTime(input.record.queriedAt),
+        },
+      },
+    })
+
+    return {
+      status: 'sent',
+    }
+  } catch (error) {
+    return {
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+async function notifyAfterSuccessfulQuery(db, input) {
+  if (input.type !== 'light') {
+    return
+  }
+
+  if (!input.record.ok || input.record.remainingKwh === undefined) {
+    return
+  }
+
+  try {
+    const result = await sendPowerQueryNotification({
+      openid: input.openid,
+      type: input.type,
+      record: input.record,
+      thresholdKwh: input.config.thresholdKwh,
+      subscribeAccepted: input.subscribeStatus === 'accepted',
+    })
+
+    await recordNotification(db, {
+      openid: input.openid,
+      type: input.type,
+      record: input.record,
+      thresholdKwh: input.config.thresholdKwh,
+      result,
+    })
+  } catch (error) {
+    console.error('Failed to process notification result', error)
+  }
+}
+
 exports.main = async (event) => {
   const meterId = String(event.meterId || '').trim()
   const type = event.type
+  const subscribeStatus = normalizeSubscribeStatus(event.notificationSubscribeStatus)
   const queriedAt = new Date()
   const { OPENID } = cloud.getWXContext()
 
@@ -196,7 +345,8 @@ exports.main = async (event) => {
   }
 
   const db = cloud.database()
-  await assertMeterBelongsToUser(db, OPENID, meterId, type)
+  const config = await assertMeterBelongsToUser(db, OPENID, meterId, type)
+  await updateSubscribeStatus(db, config, subscribeStatus)
 
   let record
 
@@ -234,6 +384,13 @@ exports.main = async (event) => {
     data: record,
   })
   await updateMeter(db, record, type)
+  await notifyAfterSuccessfulQuery(db, {
+    openid: OPENID,
+    type,
+    record,
+    config,
+    subscribeStatus,
+  })
 
   return record
 }
