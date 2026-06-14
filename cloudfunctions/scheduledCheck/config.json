@@ -1,7 +1,7 @@
 {
   "triggers": [
     {
-      "name": "scheduledCheckEvery10Minutes",
+      "name": "scheduledCheckEveryMinute",
       "type": "timer",
       "config": "0 */10 * * * * *"
     }

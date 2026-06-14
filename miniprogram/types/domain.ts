@@ -31,6 +31,7 @@ export interface SaveConfigPayload {
   reminderEnabled: boolean
   nextCheckAt?: string
   checkIntervalMinutes?: number
+  notificationSubscribeStatus?: SubscribeStatus
 }
 
 export interface SaveConfigResult {

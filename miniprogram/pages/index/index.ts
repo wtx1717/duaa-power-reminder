@@ -7,6 +7,7 @@ import type {
   QueryPowerResult,
   SaveConfigPayload,
   ScheduledCheckResult,
+  SubscribeStatus,
 } from '../../types/domain'
 
 type InputEvent = {
@@ -95,14 +96,30 @@ function formatPowerResult(result: QueryPowerResult): string {
 
 function formatSubscribeMessage(status: PowerNotificationSubscribeResult): string {
   if (status === 'rejected') {
-    return '，已拒绝订阅，本次仅查询电量'
+    return '已拒绝订阅，低电量提醒未开启'
   }
 
   if (status === 'skipped') {
-    return '，订阅授权未完成，本次仅查询电量'
+    return '订阅授权未完成，低电量提醒未开启'
   }
 
-  return ''
+  return '低电量提醒已开启，已允许发送订阅消息'
+}
+
+function normalizeSubscribeStatus(status?: SubscribeStatus): SubscribeStatus {
+  return status === 'accepted' || status === 'rejected' ? status : 'unknown'
+}
+
+function formatSubscribeStatusText(status: SubscribeStatus): string {
+  if (status === 'accepted') {
+    return '已允许发送订阅消息，每次自动查询后会提醒'
+  }
+
+  if (status === 'rejected') {
+    return '已拒绝订阅，打开开关可重新授权'
+  }
+
+  return '打开开关时会申请订阅消息权限'
 }
 
 function formatScheduledCheckMessage(result: ScheduledCheckResult): string {
@@ -137,7 +154,9 @@ Page({
       toPickerDate(getDefaultNextCheckAt()),
       toPickerTime(getDefaultNextCheckAt()),
     ),
-    checkIntervalMinutes: '1440',
+    checkIntervalMinutes: '1',
+    notificationSubscribeStatus: 'unknown' as SubscribeStatus,
+    notificationSubscribeStatusText: formatSubscribeStatusText('unknown'),
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
@@ -168,6 +187,7 @@ Page({
           : undefined) || getDefaultNextCheckAt()
       const scheduledDate = toPickerDate(nextCheckAt)
       const scheduledTime = toPickerTime(nextCheckAt)
+      const notificationSubscribeStatus = normalizeSubscribeStatus(config && config.subscribeStatus)
       const checkIntervalMinutes = result.meters && result.meters.light && result.meters.light.checkIntervalMinutes
         ? String(result.meters.light.checkIntervalMinutes)
         : result.meters && result.meters.ac && result.meters.ac.checkIntervalMinutes
@@ -189,6 +209,8 @@ Page({
         scheduledTime,
         scheduledCheckText: formatScheduleText(scheduledDate, scheduledTime),
         checkIntervalMinutes,
+        notificationSubscribeStatus,
+        notificationSubscribeStatusText: formatSubscribeStatusText(notificationSubscribeStatus),
         lightPower: createMeterView('照明', lightMeterId),
         acPower: createMeterView('空调', acMeterId),
       })
@@ -225,10 +247,32 @@ Page({
     })
   },
 
-  onReminderSwitch(event: SwitchEvent) {
+  async onReminderSwitch(event: SwitchEvent) {
+    if (!event.detail.value) {
+      this.setData({
+        reminderEnabled: false,
+        notificationSubscribeStatus: 'rejected',
+        notificationSubscribeStatusText: formatSubscribeStatusText('rejected'),
+        message: '低电量提醒已关闭',
+      })
+      await this.saveCurrentConfigSilently()
+      return
+    }
+
+    const subscribeStatus = await requestPowerNotificationSubscribe()
+    const notificationSubscribeStatus = subscribeStatus === 'accepted' || subscribeStatus === 'rejected'
+      ? subscribeStatus
+      : 'unknown'
+    const reminderEnabled = notificationSubscribeStatus === 'accepted'
+
     this.setData({
-      reminderEnabled: event.detail.value,
+      reminderEnabled,
+      notificationSubscribeStatus,
+      notificationSubscribeStatusText: formatSubscribeStatusText(notificationSubscribeStatus),
+      message: formatSubscribeMessage(subscribeStatus),
     })
+
+    await this.saveCurrentConfigSilently()
   },
 
   onScheduledDateChange(event: InputEvent) {
@@ -253,7 +297,7 @@ Page({
     })
   },
 
-  buildSavePayload(): SaveConfigPayload | undefined {
+  buildSavePayload(silent = false): SaveConfigPayload | undefined {
     const thresholdKwh = Number(this.data.thresholdKwh)
     const nextCheckAt = parsePickerDateTime(this.data.scheduledDate, this.data.scheduledTime)
     const checkIntervalMinutes = Number(this.data.checkIntervalMinutes)
@@ -264,39 +308,74 @@ Page({
       reminderEnabled: this.data.reminderEnabled,
       nextCheckAt: nextCheckAt ? nextCheckAt.toISOString() : undefined,
       checkIntervalMinutes,
+      notificationSubscribeStatus: this.data.notificationSubscribeStatus === 'unknown'
+        ? undefined
+        : this.data.notificationSubscribeStatus,
     }
 
     if (!payload.lightMeterId) {
-      this.setData({ message: '请填写宿舍照明电表号' })
+      if (!silent) {
+        this.setData({ message: '请填写宿舍照明电表号' })
+      }
       return undefined
     }
 
     if (!payload.acMeterId) {
-      this.setData({ message: '请填写宿舍空调电表号' })
+      if (!silent) {
+        this.setData({ message: '请填写宿舍空调电表号' })
+      }
       return undefined
     }
 
     if (payload.lightMeterId === payload.acMeterId) {
-      this.setData({ message: '照明电表号和空调电表号不能相同' })
+      if (!silent) {
+        this.setData({ message: '照明电表号和空调电表号不能相同' })
+      }
       return undefined
     }
 
     if (!Number.isFinite(payload.thresholdKwh) || payload.thresholdKwh <= 0) {
-      this.setData({ message: '提醒阈值必须大于 0' })
+      if (!silent) {
+        this.setData({ message: '提醒阈值必须大于 0' })
+      }
       return undefined
     }
 
     if (!nextCheckAt) {
-      this.setData({ message: '定时查询时间不正确' })
+      if (!silent) {
+        this.setData({ message: '定时查询时间不正确' })
+      }
       return undefined
     }
 
-    if (!Number.isFinite(checkIntervalMinutes) || checkIntervalMinutes < 5) {
-      this.setData({ message: '查询间隔不能小于 5 分钟' })
+    if (!Number.isFinite(checkIntervalMinutes) || checkIntervalMinutes < 1) {
+      if (!silent) {
+        this.setData({ message: '查询间隔不能小于 1 分钟' })
+      }
       return undefined
     }
 
     return payload
+  },
+
+  async saveCurrentConfigSilently() {
+    const payload = this.buildSavePayload(true)
+
+    if (!payload) {
+      return
+    }
+
+    try {
+      const result = await savePowerConfig(payload)
+
+      if (!result.ok) {
+        throw new Error(result.error || '配置保存失败')
+      }
+    } catch (error) {
+      this.setData({
+        message: error instanceof Error ? error.message : '配置保存失败',
+      })
+    }
   },
 
   async onSaveConfig() {
@@ -346,9 +425,6 @@ Page({
       return
     }
 
-    const subscribeStatus = await requestPowerNotificationSubscribe()
-    const subscribeMessage = formatSubscribeMessage(subscribeStatus)
-
     this.setData({
       queryingAll: true,
       message: '',
@@ -361,19 +437,17 @@ Page({
         queryPower({
           meterId: payload.lightMeterId,
           type: 'light',
-          notificationSubscribeStatus: subscribeStatus,
         }),
         queryPower({
           meterId: payload.acMeterId,
           type: 'ac',
-          notificationSubscribeStatus: subscribeStatus,
         }),
       ])
 
       this.setData({
         lightPower: createMeterView('照明', payload.lightMeterId, lightResult),
         acPower: createMeterView('空调', payload.acMeterId, acResult),
-        message: `${lightResult.ok || acResult.ok ? '查询完成' : '两个电表都查询失败'}${subscribeMessage}`,
+        message: lightResult.ok || acResult.ok ? '查询完成' : '两个电表都查询失败',
       })
     } catch (error) {
       this.setData({

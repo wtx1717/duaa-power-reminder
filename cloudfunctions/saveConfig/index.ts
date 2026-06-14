@@ -42,8 +42,8 @@ function parseCheckIntervalMinutes(value: SaveConfigInput['checkIntervalMinutes'
     ? 24 * 60
     : Number(value)
 
-  if (!Number.isFinite(minutes) || minutes < 5) {
-    throw new Error('查询间隔不能小于 5 分钟')
+  if (!Number.isFinite(minutes) || minutes < 1) {
+    throw new Error('查询间隔不能小于 1 分钟')
   }
 
   return Math.floor(minutes)
@@ -80,6 +80,12 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
     nextCheckAt,
     checkIntervalMinutes,
   }
+}
+
+function normalizeSubscribeStatus(value: SaveConfigInput['notificationSubscribeStatus']): SubscribeStatus | undefined {
+  return value === 'accepted' || value === 'rejected' || value === 'unknown'
+    ? value
+    : undefined
 }
 
 async function upsertMeter(
@@ -134,7 +140,9 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
   const userConfigs = db.collection<UserConfig & StoredDocument>(COLLECTIONS.userConfigs)
   const existing = await userConfigs.where({ openid: OPENID }).get()
   const current = existing.data[0]
-  const subscribeStatus: SubscribeStatus = current?.subscribeStatus || 'unknown'
+  const subscribeStatus: SubscribeStatus = normalizeSubscribeStatus(event.notificationSubscribeStatus)
+    || current?.subscribeStatus
+    || 'unknown'
   const config = {
     openid: OPENID,
     lightMeterId: input.lightMeterId,

@@ -71,6 +71,7 @@ export interface SaveConfigInput {
   reminderEnabled: boolean
   nextCheckAt?: Date | string
   checkIntervalMinutes?: number | string
+  notificationSubscribeStatus?: SubscribeStatus
 }
 
 export interface QueryPowerInput {

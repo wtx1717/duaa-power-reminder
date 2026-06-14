@@ -15,7 +15,7 @@ const REQUEST_TIMEOUT_MS = 15000
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
 const MAX_METERS_PER_RUN = 20
 const DEFAULT_CHECK_INTERVAL_MINUTES = 24 * 60
-const MIN_CHECK_INTERVAL_MINUTES = 5
+const MIN_CHECK_INTERVAL_MINUTES = 1
 const LOCK_NAME = 'scheduledCheck'
 const LOCK_TTL_MS = 10 * 60 * 1000
 
@@ -394,6 +394,7 @@ async function findBoundReminderConfigs(db, meterId, type) {
   const result = await db.collection(COLLECTIONS.userConfigs).where({
     [field]: meterId,
     reminderEnabled: true,
+    subscribeStatus: 'accepted',
   }).get()
 
   return result.data
@@ -486,6 +487,7 @@ async function notifyUsersForLightMeter(db, record, configs) {
       } else {
         skippedNotifications += 1
       }
+
     } catch (error) {
       failedNotifications += 1
       console.error('Failed to process scheduled notification', {

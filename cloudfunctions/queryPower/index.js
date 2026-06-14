@@ -13,6 +13,8 @@ const POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 // TODO: Move this template id to a cloud environment variable before production.
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
+const DEFAULT_CHECK_INTERVAL_MINUTES = 24 * 60
+const MIN_CHECK_INTERVAL_MINUTES = 1
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -158,11 +160,13 @@ async function updateMeter(db, record, type) {
   const meters = db.collection(COLLECTIONS.meters)
   const existing = await meters.where({ meterId: record.meterId }).get()
   const current = existing.data[0]
+  const checkIntervalMinutes = normalizeCheckIntervalMinutes(current && current.checkIntervalMinutes)
   const data = {
     type,
     lastRemainingKwh: record.remainingKwh,
     lastQueriedAt: record.queriedAt,
-    nextCheckAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    nextCheckAt: new Date(Date.now() + checkIntervalMinutes * 60 * 1000),
+    checkIntervalMinutes,
     failCount: record.ok ? 0 : ((current && current.failCount) || 0) + 1,
     lastError: record.error || '',
     updatedAt: now,
@@ -180,6 +184,16 @@ async function updateMeter(db, record, type) {
       ...data,
     },
   })
+}
+
+function normalizeCheckIntervalMinutes(value) {
+  const minutes = Number(value)
+
+  if (!Number.isFinite(minutes) || minutes < MIN_CHECK_INTERVAL_MINUTES) {
+    return DEFAULT_CHECK_INTERVAL_MINUTES
+  }
+
+  return Math.floor(minutes)
 }
 
 function normalizeSubscribeStatus(value) {
