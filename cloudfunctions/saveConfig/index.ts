@@ -16,7 +16,7 @@ interface StoredDocument {
 
 type ValidatedSaveConfigInput = Pick<
   SaveConfigInput,
-  'lightMeterId' | 'acMeterId' | 'thresholdKwh' | 'reminderEnabled'
+  'lightMeterId' | 'acMeterId' | 'email' | 'thresholdKwh' | 'reminderEnabled'
 >
 
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
@@ -25,9 +25,18 @@ function normalizeMeterId(value: string): string {
   return String(value || '').trim()
 }
 
+function normalizeEmail(value: string): string {
+  return String(value || '').trim().toLowerCase()
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
 function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
+  const email = normalizeEmail(input.email)
   const thresholdKwh = Number(input.thresholdKwh)
 
   if (!lightMeterId) {
@@ -46,9 +55,18 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
     throw new Error('提醒阈值必须大于 0')
   }
 
+  if (!email) {
+    throw new Error('请填写提醒邮箱')
+  }
+
+  if (!isValidEmail(email)) {
+    throw new Error('提醒邮箱格式不正确')
+  }
+
   return {
     lightMeterId,
     acMeterId,
+    email,
     thresholdKwh,
     reminderEnabled: true,
   }
@@ -113,6 +131,7 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
     openid: OPENID,
     lightMeterId: input.lightMeterId,
     acMeterId: input.acMeterId,
+    email: input.email,
     thresholdKwh: input.thresholdKwh,
     reminderEnabled: input.reminderEnabled,
     subscribeStatus,

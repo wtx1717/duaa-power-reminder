@@ -1,7 +1,5 @@
 import { loginWithWechat } from '../../services/auth'
 import { queryPower, savePowerConfig } from '../../services/meter'
-import { requestPowerNotificationSubscribe } from '../../services/notification'
-import type { PowerNotificationSubscribeResult } from '../../services/notification'
 import type {
   MeterPowerView,
   QueryPowerResult,
@@ -54,20 +52,8 @@ function normalizeSubscribeStatus(status?: SubscribeStatus): SubscribeStatus {
   return status === 'accepted' || status === 'rejected' ? status : 'unknown'
 }
 
-function toStoredSubscribeStatus(status: PowerNotificationSubscribeResult): SubscribeStatus {
-  return status === 'accepted' || status === 'rejected' ? status : 'unknown'
-}
-
-function formatSubscribeMessage(status: PowerNotificationSubscribeResult): string {
-  if (status === 'accepted') {
-    return '配置已保存，低电量提醒已开启'
-  }
-
-  if (status === 'rejected') {
-    return '配置已保存，未开启低电量订阅提醒'
-  }
-
-  return '配置已保存，订阅授权未完成'
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
 Page({
@@ -76,6 +62,7 @@ Page({
     openidText: '未登录',
     lightMeterId: '',
     acMeterId: '',
+    email: '',
     thresholdKwh: '20',
     loading: true,
     saving: false,
@@ -103,6 +90,7 @@ Page({
       const config = result.config
       const lightMeterId = config ? config.lightMeterId : ''
       const acMeterId = config ? config.acMeterId : ''
+      const email = config && config.email ? config.email : ''
       const notificationSubscribeStatus = normalizeSubscribeStatus(config && config.subscribeStatus)
 
       this.setData({
@@ -110,6 +98,7 @@ Page({
         openidText: `已登录 ${maskOpenid(result.openid)}`,
         lightMeterId,
         acMeterId,
+        email,
         thresholdKwh: config && config.thresholdKwh
           ? String(config.thresholdKwh)
           : this.data.thresholdKwh,
@@ -144,6 +133,12 @@ Page({
     })
   },
 
+  onEmailInput(event: InputEvent) {
+    this.setData({
+      email: event.detail.value.trim(),
+    })
+  },
+
   onThresholdInput(event: InputEvent) {
     this.setData({
       thresholdKwh: event.detail.value,
@@ -156,6 +151,7 @@ Page({
     const payload: SaveConfigPayload = {
       lightMeterId: this.data.lightMeterId.trim(),
       acMeterId: this.data.acMeterId.trim(),
+      email: this.data.email.trim(),
       thresholdKwh,
       reminderEnabled: true,
       notificationSubscribeStatus,
@@ -178,6 +174,20 @@ Page({
     if (payload.lightMeterId === payload.acMeterId) {
       if (!silent) {
         this.setData({ message: '照明电表号和空调电表号不能相同' })
+      }
+      return undefined
+    }
+
+    if (!payload.email) {
+      if (!silent) {
+        this.setData({ message: '请填写提醒邮箱' })
+      }
+      return undefined
+    }
+
+    if (!isValidEmail(payload.email)) {
+      if (!silent) {
+        this.setData({ message: '提醒邮箱格式不正确' })
       }
       return undefined
     }
@@ -205,18 +215,7 @@ Page({
     })
 
     try {
-      let subscribeStatus = this.data.notificationSubscribeStatus
-      let subscribeResult: PowerNotificationSubscribeResult | undefined
-
-      if (subscribeStatus === 'unknown') {
-        subscribeResult = await requestPowerNotificationSubscribe()
-        subscribeStatus = toStoredSubscribeStatus(subscribeResult)
-        this.setData({
-          notificationSubscribeStatus: subscribeStatus,
-        })
-      }
-
-      const payload = this.buildSavePayload(false, subscribeStatus)
+      const payload = this.buildSavePayload(false)
 
       if (!payload) {
         return
@@ -229,7 +228,7 @@ Page({
       }
 
       this.setData({
-        message: subscribeResult ? formatSubscribeMessage(subscribeResult) : '配置已保存',
+        message: '配置已保存，低电量提醒将发送到邮箱',
         lightPower: createMeterView('照明', payload.lightMeterId),
         acPower: createMeterView('空调', payload.acMeterId),
       })

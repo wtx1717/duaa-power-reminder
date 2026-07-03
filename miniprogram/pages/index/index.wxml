@@ -41,6 +41,18 @@
       />
     </view>
 
+    <view class="field">
+      <text class="label">提醒邮箱</text>
+      <input
+        class="input"
+        type="text"
+        value="{{email}}"
+        placeholder="请输入接收提醒的邮箱"
+        placeholder-class="placeholder"
+        bindinput="onEmailInput"
+      />
+    </view>
+
     <button
       class="save-button"
       type="primary"

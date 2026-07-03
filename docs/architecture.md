@@ -1,6 +1,6 @@
 # 项目架构
 
-北航宿舍电量提醒小程序采用微信原生小程序前端、云函数后端和云数据库的结构。当前阶段只初始化架构骨架和数据库设计，不实现真实电量爬取、订阅消息发送或复杂调度算法。
+北航宿舍电量提醒小程序采用微信原生小程序前端、云函数后端和云数据库的结构。当前阶段已经接入电量查询和邮件提醒，调度算法仍保持简单。
 
 ## 目录分层
 
@@ -13,7 +13,7 @@ docs/                 架构和数据库文档
 
 ## 小程序前端职责
 
-前端负责微信登录入口、用户电表配置填写、提醒阈值设置、订阅消息授权引导和结果展示。前端只调用云函数，不保存任何敏感凭据，也不直接访问电量查询页面。
+前端负责微信登录入口、用户电表配置填写、提醒邮箱和提醒阈值设置、结果展示。前端只调用云函数，不保存任何敏感凭据，也不直接访问电量查询页面。
 
 当前新增的 `miniprogram/services/` 只提供云函数调用封装和业务 API 占位，`miniprogram/types/` 保存前端领域类型。后续页面开发时应优先复用这些 service，避免页面直接散落 `wx.cloud.callFunction`。
 
@@ -27,6 +27,7 @@ docs/                 架构和数据库文档
 | `saveConfig` | 校验并保存用户电表绑定、提醒阈值和提醒开关 |
 | `queryPower` | 查询单个电表电量并保存查询记录 |
 | `scheduledCheck` | 定时扫描到期电表，触发查询和低电量提醒 |
+| `sendEmailNotification` | 使用 SMTP 发送低电量邮件提醒 |
 
 `cloudfunctions/shared/` 保存可复用模块：数据库集合名、领域类型、电量页面请求、HTML 解析、调度策略和订阅消息发送。当前这些模块只保留函数签名和 TODO，真实实现应在后续功能阶段补充。
 
@@ -39,7 +40,7 @@ docs/                 架构和数据库文档
 | `user_configs` | 保存用户绑定和提醒配置 |
 | `meters` | 按唯一电表号保存最新状态和下次查询时间 |
 | `power_records` | 保存每次电量查询结果 |
-| `notification_records` | 保存订阅消息发送记录 |
+| `notification_records` | 保存提醒发送记录 |
 | `job_locks` | 防止定时任务并发重复执行 |
 
 详细字段和索引见 `docs/database.md`。
@@ -51,7 +52,7 @@ docs/                 架构和数据库文档
 3. 对每个到期电表调用电量查询模块，解析并写入 `power_records`。
 4. 更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`nextCheckAt`、`failCount` 和 `lastError`。
 5. 找到绑定该电表且开启提醒的 `user_configs`。
-6. 当剩余电量低于用户 `thresholdKwh` 时，调用通知模块并写入 `notification_records`。
+6. 当剩余电量小于等于用户 `thresholdKwh` 时，调用邮件提醒云函数并写入 `notification_records`。
 7. 释放或更新任务锁。
 
 ## 按唯一电表号去重的原因
