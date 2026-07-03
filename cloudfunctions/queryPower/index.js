@@ -13,7 +13,7 @@ const POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 // TODO: Move this template id to a cloud environment variable before production.
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
-const DEFAULT_CHECK_INTERVAL_MINUTES = 24 * 60
+const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const MIN_CHECK_INTERVAL_MINUTES = 1
 
 cloud.init({
