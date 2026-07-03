@@ -14,7 +14,7 @@ const POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
 const MAX_METERS_PER_RUN = 20
-const DEFAULT_CHECK_INTERVAL_MINUTES = 24 * 60
+const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const MIN_CHECK_INTERVAL_MINUTES = 1
 const LOCK_NAME = 'scheduledCheck'
 const LOCK_TTL_MS = 10 * 60 * 1000
@@ -191,6 +191,14 @@ function normalizeCheckIntervalMinutes(value) {
   }
 
   return Math.floor(minutes)
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
 function isCollectionNotFoundError(error) {
@@ -394,7 +402,6 @@ async function findBoundReminderConfigs(db, meterId, type) {
   const result = await db.collection(COLLECTIONS.userConfigs).where({
     [field]: meterId,
     reminderEnabled: true,
-    subscribeStatus: 'accepted',
   }).get()
 
   return result.data
@@ -403,12 +410,14 @@ async function findBoundReminderConfigs(db, meterId, type) {
 async function recordNotification(db, input) {
   const data = {
     openid: input.openid,
+    email: input.email,
     meterId: input.record.meterId,
     type: input.type,
     remainingKwh: input.record.remainingKwh,
     thresholdKwh: input.thresholdKwh,
     sentAt: db.serverDate(),
     status: input.result.status,
+    channel: 'email',
     source: 'scheduledCheck',
   }
 
@@ -420,36 +429,56 @@ async function recordNotification(db, input) {
 }
 
 async function sendPowerQueryNotification(input) {
-  if (!input.openid) {
-    return {
-      status: 'skipped',
-      error: 'Missing openid',
-    }
+  return {
+    status: 'skipped',
+    error: '微信订阅消息已停用，使用邮件提醒',
+  }
+}
+
+function shouldSendEmailNotification(config, record) {
+  const thresholdKwh = Number(config && config.thresholdKwh)
+  const email = normalizeEmail(config && config.email)
+
+  if (!config || config.reminderEnabled !== true) {
+    return false
   }
 
+  if (!record.ok || record.remainingKwh === undefined) {
+    return false
+  }
+
+  if (!Number.isFinite(thresholdKwh) || thresholdKwh <= 0) {
+    return false
+  }
+
+  if (!email || !isValidEmail(email)) {
+    return false
+  }
+
+  return record.remainingKwh <= thresholdKwh
+}
+
+async function sendEmailNotification(input) {
   try {
-    await cloud.openapi.subscribeMessage.send({
-      touser: input.openid,
-      templateId: LOW_POWER_TEMPLATE_ID,
-      page: 'pages/index/index',
+    const response = await cloud.callFunction({
+      name: 'sendEmailNotification',
       data: {
-        character_string1: {
-          value: String(input.record.remainingKwh),
-        },
-        thing2: {
-          value: limitThing(input.record.address || '\u672a\u89e3\u6790\u5230\u516c\u5bd3\u5730\u5740'),
-        },
-        thing3: {
-          value: limitThing(getMeterTypeLabel(input.type)),
-        },
-        time4: {
-          value: formatDateTime(input.record.queriedAt),
-        },
+        openid: input.config.openid,
+        email: normalizeEmail(input.config.email),
+        meterId: input.record.meterId,
+        type: input.type,
+        remainingKwh: input.record.remainingKwh,
+        thresholdKwh: input.config.thresholdKwh,
+        queriedAt: input.record.queriedAt,
+        address: input.record.address || '',
+        source: 'scheduledCheck',
       },
     })
+    const result = response && response.result
 
     return {
-      status: 'sent',
+      status: result && result.status ? result.status : 'failed',
+      error: result && result.error,
     }
   } catch (error) {
     return {
@@ -459,22 +488,27 @@ async function sendPowerQueryNotification(input) {
   }
 }
 
-async function notifyUsersForLightMeter(db, record, configs) {
+async function notifyUsersForMeter(db, record, type, configs) {
   let sentNotifications = 0
   let failedNotifications = 0
   let skippedNotifications = 0
 
   for (const config of configs) {
+    if (!shouldSendEmailNotification(config, record)) {
+      continue
+    }
+
     try {
-      const result = await sendPowerQueryNotification({
-        openid: config.openid,
-        type: 'light',
+      const result = await sendEmailNotification({
+        config,
+        type,
         record,
       })
 
       await recordNotification(db, {
         openid: config.openid,
-        type: 'light',
+        email: normalizeEmail(config.email),
+        type,
         record,
         thresholdKwh: config.thresholdKwh,
         result,
@@ -522,7 +556,7 @@ async function processMeter(db, meter) {
   })
   await updateMeter(db, meter, record, type)
 
-  if (type !== 'light' || !record.ok || record.remainingKwh === undefined) {
+  if (!record.ok || record.remainingKwh === undefined) {
     return {
       sentNotifications: 0,
       failedNotifications: 0,
@@ -531,7 +565,7 @@ async function processMeter(db, meter) {
   }
 
   const configs = await findBoundReminderConfigs(db, record.meterId, type)
-  return notifyUsersForLightMeter(db, record, configs)
+  return notifyUsersForMeter(db, record, type, configs)
 }
 
 exports.main = async () => {

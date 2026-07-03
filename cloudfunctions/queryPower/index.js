@@ -13,7 +13,7 @@ const POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 // TODO: Move this template id to a cloud environment variable before production.
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
-const DEFAULT_CHECK_INTERVAL_MINUTES = 24 * 60
+const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const MIN_CHECK_INTERVAL_MINUTES = 1
 
 cloud.init({
@@ -202,6 +202,14 @@ function normalizeSubscribeStatus(value) {
     : 'skipped'
 }
 
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
 function pad(value) {
   return String(value).padStart(2, '0')
 }
@@ -244,12 +252,15 @@ async function updateSubscribeStatus(db, config, subscribeStatus) {
 async function recordNotification(db, input) {
   const data = {
     openid: input.openid,
+    email: input.email,
     meterId: input.record.meterId,
     remainingKwh: input.record.remainingKwh,
     thresholdKwh: input.thresholdKwh,
     sentAt: db.serverDate(),
     status: input.result.status,
     type: input.type,
+    channel: 'email',
+    source: 'queryPower',
   }
 
   if (input.result.error) {
@@ -262,44 +273,56 @@ async function recordNotification(db, input) {
 }
 
 async function sendPowerQueryNotification(input) {
-  if (!input.subscribeAccepted) {
-    return {
-      status: 'skipped',
-      error: 'User did not accept subscribe message authorization for this query',
-    }
+  return {
+    status: 'skipped',
+    error: '微信订阅消息已停用，使用邮件提醒',
+  }
+}
+
+function shouldSendEmailNotification(input) {
+  const thresholdKwh = Number(input.config && input.config.thresholdKwh)
+  const email = normalizeEmail(input.config && input.config.email)
+
+  if (!input.config || input.config.reminderEnabled !== true) {
+    return false
   }
 
-  if (!input.openid) {
-    return {
-      status: 'skipped',
-      error: 'Missing openid',
-    }
+  if (!input.record.ok || input.record.remainingKwh === undefined) {
+    return false
   }
 
+  if (!Number.isFinite(thresholdKwh) || thresholdKwh <= 0) {
+    return false
+  }
+
+  if (!email || !isValidEmail(email)) {
+    return false
+  }
+
+  return input.record.remainingKwh <= thresholdKwh
+}
+
+async function sendEmailNotification(input) {
   try {
-    await cloud.openapi.subscribeMessage.send({
-      touser: input.openid,
-      templateId: LOW_POWER_TEMPLATE_ID,
-      page: 'pages/index/index',
+    const response = await cloud.callFunction({
+      name: 'sendEmailNotification',
       data: {
-        // Template keywords: 剩余电量、公寓地址、备注、抄表时间.
-        character_string1: {
-          value: String(input.record.remainingKwh),
-        },
-        thing2: {
-          value: limitThing(input.record.address || '未解析到公寓地址'),
-        },
-        thing3: {
-          value: limitThing(getMeterTypeLabel(input.type)),
-        },
-        time4: {
-          value: formatDateTime(input.record.queriedAt),
-        },
+        openid: input.openid,
+        email: normalizeEmail(input.config.email),
+        meterId: input.record.meterId,
+        type: input.type,
+        remainingKwh: input.record.remainingKwh,
+        thresholdKwh: input.config.thresholdKwh,
+        queriedAt: input.record.queriedAt,
+        address: input.record.address || '',
+        source: 'queryPower',
       },
     })
+    const result = response && response.result
 
     return {
-      status: 'sent',
+      status: result && result.status ? result.status : 'failed',
+      error: result && result.error,
     }
   } catch (error) {
     return {
@@ -310,25 +333,16 @@ async function sendPowerQueryNotification(input) {
 }
 
 async function notifyAfterSuccessfulQuery(db, input) {
-  if (input.type !== 'light') {
-    return
-  }
-
-  if (!input.record.ok || input.record.remainingKwh === undefined) {
+  if (!shouldSendEmailNotification(input)) {
     return
   }
 
   try {
-    const result = await sendPowerQueryNotification({
-      openid: input.openid,
-      type: input.type,
-      record: input.record,
-      thresholdKwh: input.config.thresholdKwh,
-      subscribeAccepted: input.subscribeStatus === 'accepted',
-    })
+    const result = await sendEmailNotification(input)
 
     await recordNotification(db, {
       openid: input.openid,
+      email: normalizeEmail(input.config.email),
       type: input.type,
       record: input.record,
       thresholdKwh: input.config.thresholdKwh,

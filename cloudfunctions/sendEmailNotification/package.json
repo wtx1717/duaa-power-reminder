@@ -1,0 +1,9 @@
+{
+  "name": "sendEmailNotification",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "nodemailer": "^6.9.16",
+    "wx-server-sdk": "~2.6.3"
+  }
+}

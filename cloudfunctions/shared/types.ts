@@ -10,6 +10,7 @@ export interface UserConfig {
   openid: string
   lightMeterId: string
   acMeterId: string
+  email: string
   thresholdKwh: number
   reminderEnabled: boolean
   subscribeStatus: SubscribeStatus
@@ -48,11 +49,15 @@ export interface PowerRecord extends PowerQueryResult {
 export interface NotificationRecord {
   _id?: string
   openid: string
+  email?: string
   meterId: string
+  type?: MeterType
+  channel?: 'email' | 'wechat'
   remainingKwh: number
   thresholdKwh: number
   sentAt: Date
   status: NotificationStatus
+  source?: 'queryPower' | 'scheduledCheck'
   error?: string
 }
 
@@ -67,6 +72,7 @@ export interface JobLock {
 export interface SaveConfigInput {
   lightMeterId: string
   acMeterId: string
+  email: string
   thresholdKwh: number
   reminderEnabled: boolean
   nextCheckAt?: Date | string

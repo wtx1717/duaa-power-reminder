@@ -7,6 +7,7 @@ export interface UserPowerConfig {
   openid: string
   lightMeterId: string
   acMeterId: string
+  email: string
   thresholdKwh: number
   reminderEnabled: boolean
   subscribeStatus: SubscribeStatus
@@ -27,6 +28,7 @@ export interface MeterSnapshot {
 export interface SaveConfigPayload {
   lightMeterId: string
   acMeterId: string
+  email: string
   thresholdKwh: number
   reminderEnabled: boolean
   nextCheckAt?: string

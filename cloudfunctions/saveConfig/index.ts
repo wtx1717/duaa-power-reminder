@@ -14,47 +14,30 @@ interface StoredDocument {
   _id?: string
 }
 
-interface ValidatedSaveConfigInput extends SaveConfigInput {
-  nextCheckAt?: Date
-  checkIntervalMinutes: number
-}
+type ValidatedSaveConfigInput = Pick<
+  SaveConfigInput,
+  'lightMeterId' | 'acMeterId' | 'email' | 'thresholdKwh' | 'reminderEnabled'
+>
+
+const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 
 function normalizeMeterId(value: string): string {
   return String(value || '').trim()
 }
 
-function parseNextCheckAt(value: SaveConfigInput['nextCheckAt']): Date | undefined {
-  if (!value) {
-    return undefined
-  }
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    throw new Error('定时查询时间不正确')
-  }
-
-  return date
+function normalizeEmail(value: string): string {
+  return String(value || '').trim().toLowerCase()
 }
 
-function parseCheckIntervalMinutes(value: SaveConfigInput['checkIntervalMinutes']): number {
-  const minutes = value === undefined || value === null || value === ''
-    ? 24 * 60
-    : Number(value)
-
-  if (!Number.isFinite(minutes) || minutes < 1) {
-    throw new Error('查询间隔不能小于 1 分钟')
-  }
-
-  return Math.floor(minutes)
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
 function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
+  const email = normalizeEmail(input.email)
   const thresholdKwh = Number(input.thresholdKwh)
-  const nextCheckAt = parseNextCheckAt(input.nextCheckAt)
-  const checkIntervalMinutes = parseCheckIntervalMinutes(input.checkIntervalMinutes)
 
   if (!lightMeterId) {
     throw new Error('请填写宿舍照明电表号')
@@ -72,13 +55,20 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
     throw new Error('提醒阈值必须大于 0')
   }
 
+  if (!email) {
+    throw new Error('请填写提醒邮箱')
+  }
+
+  if (!isValidEmail(email)) {
+    throw new Error('提醒邮箱格式不正确')
+  }
+
   return {
     lightMeterId,
     acMeterId,
+    email,
     thresholdKwh,
-    reminderEnabled: Boolean(input.reminderEnabled),
-    nextCheckAt,
-    checkIntervalMinutes,
+    reminderEnabled: true,
   }
 }
 
@@ -91,8 +81,6 @@ function normalizeSubscribeStatus(value: SaveConfigInput['notificationSubscribeS
 async function upsertMeter(
   meterId: string,
   type: Meter['type'],
-  nextCheckAt?: Date,
-  checkIntervalMinutes = 24 * 60,
 ): Promise<void> {
   const db = getDatabase()
   const now = db.serverDate()
@@ -101,12 +89,8 @@ async function upsertMeter(
   const current = existing.data[0]
   const data: Record<string, unknown> = {
     type,
-    checkIntervalMinutes,
+    checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
     updatedAt: now,
-  }
-
-  if (nextCheckAt) {
-    data.nextCheckAt = nextCheckAt
   }
 
   if (current?._id) {
@@ -119,8 +103,8 @@ async function upsertMeter(
       meterId,
       type,
       failCount: 0,
-      nextCheckAt: nextCheckAt || new Date(),
-      checkIntervalMinutes,
+      nextCheckAt: new Date(),
+      checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
       createdAt: now,
       updatedAt: now,
     },
@@ -147,6 +131,7 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
     openid: OPENID,
     lightMeterId: input.lightMeterId,
     acMeterId: input.acMeterId,
+    email: input.email,
     thresholdKwh: input.thresholdKwh,
     reminderEnabled: input.reminderEnabled,
     subscribeStatus,
@@ -169,8 +154,8 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
     })
   }
 
-  await upsertMeter(input.lightMeterId, 'light', input.nextCheckAt, input.checkIntervalMinutes)
-  await upsertMeter(input.acMeterId, 'ac', input.nextCheckAt, input.checkIntervalMinutes)
+  await upsertMeter(input.lightMeterId, 'light')
+  await upsertMeter(input.acMeterId, 'ac')
 
   return {
     ok: true,

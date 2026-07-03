@@ -57,31 +57,6 @@ page {
   color: #9aa5a0;
 }
 
-.schedule-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16rpx;
-}
-
-.picker-value {
-  box-sizing: border-box;
-  height: 88rpx;
-  padding: 0 24rpx;
-  border: 1rpx solid #d9e0dd;
-  border-radius: 8rpx;
-  background: #fff;
-  font-size: 30rpx;
-  line-height: 88rpx;
-}
-
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 96rpx;
-  margin: 8rpx 0 32rpx;
-}
-
 .hint {
   color: #7b8782;
   font-size: 24rpx;
@@ -89,9 +64,7 @@ page {
 }
 
 .save-button,
-.query-button,
-.debug-button,
-.secondary-button {
+.query-button {
   width: 100%;
   margin-top: 20rpx;
   border-radius: 8rpx;
@@ -105,16 +78,6 @@ page {
 .query-button {
   color: #fff;
   background: #265fbd;
-}
-
-.debug-button {
-  color: #fff;
-  background: #6b5b2a;
-}
-
-.secondary-button {
-  color: #1f7a5a;
-  background: #fff;
 }
 
 .result-list {

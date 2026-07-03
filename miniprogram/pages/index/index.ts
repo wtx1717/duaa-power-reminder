@@ -1,12 +1,9 @@
 import { loginWithWechat } from '../../services/auth'
-import { queryPower, runScheduledCheck, savePowerConfig } from '../../services/meter'
-import { requestPowerNotificationSubscribe } from '../../services/notification'
-import type { PowerNotificationSubscribeResult } from '../../services/notification'
+import { queryPower, savePowerConfig } from '../../services/meter'
 import type {
   MeterPowerView,
   QueryPowerResult,
   SaveConfigPayload,
-  ScheduledCheckResult,
   SubscribeStatus,
 } from '../../types/domain'
 
@@ -16,55 +13,12 @@ type InputEvent = {
   }
 }
 
-type SwitchEvent = {
-  detail: {
-    value: boolean
-  }
-}
-
 function maskOpenid(openid: string): string {
   if (openid.length <= 8) {
     return openid
   }
 
   return `${openid.slice(0, 4)}****${openid.slice(-4)}`
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, '0')
-}
-
-function getDefaultNextCheckAt(): Date {
-  const date = new Date()
-  date.setMinutes(date.getMinutes() + 10)
-  date.setSeconds(0, 0)
-  return date
-}
-
-function toDate(value?: string): Date | undefined {
-  if (!value) {
-    return undefined
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? undefined : date
-}
-
-function toPickerDate(value: Date): string {
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
-}
-
-function toPickerTime(value: Date): string {
-  return `${pad(value.getHours())}:${pad(value.getMinutes())}`
-}
-
-function formatScheduleText(date: string, time: string): string {
-  return `${date} ${time}`
-}
-
-function parsePickerDateTime(date: string, time: string): Date | undefined {
-  const value = new Date(`${date}T${time}:00`)
-  return Number.isNaN(value.getTime()) ? undefined : value
 }
 
 function createMeterView(
@@ -94,46 +48,12 @@ function formatPowerResult(result: QueryPowerResult): string {
   return `剩余 ${remaining}${cutoff}`
 }
 
-function formatSubscribeMessage(status: PowerNotificationSubscribeResult): string {
-  if (status === 'rejected') {
-    return '已拒绝订阅，低电量提醒未开启'
-  }
-
-  if (status === 'skipped') {
-    return '订阅授权未完成，低电量提醒未开启'
-  }
-
-  return '低电量提醒已开启，已允许发送订阅消息'
-}
-
 function normalizeSubscribeStatus(status?: SubscribeStatus): SubscribeStatus {
   return status === 'accepted' || status === 'rejected' ? status : 'unknown'
 }
 
-function formatSubscribeStatusText(status: SubscribeStatus): string {
-  if (status === 'accepted') {
-    return '已允许发送订阅消息，每次自动查询后会提醒'
-  }
-
-  if (status === 'rejected') {
-    return '已拒绝订阅，打开开关可重新授权'
-  }
-
-  return '打开开关时会申请订阅消息权限'
-}
-
-function formatScheduledCheckMessage(result: ScheduledCheckResult): string {
-  if (result.locked) {
-    return '定时查询正在执行中，请稍后再试'
-  }
-
-  const failed = result.failedNotifications || 0
-  const skipped = result.skippedNotifications || 0
-  const errorCount = result.errors ? result.errors.length : 0
-  const errorText = errorCount > 0 ? `，异常 ${errorCount} 个` : ''
-  const lockText = result.lockDisabled ? '（未启用任务锁）' : ''
-
-  return `定时查询完成${lockText}：处理 ${result.checkedMeters} 个电表，发送 ${result.sentNotifications} 条，失败 ${failed} 条，跳过 ${skipped} 条${errorText}`
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
 Page({
@@ -142,21 +62,12 @@ Page({
     openidText: '未登录',
     lightMeterId: '',
     acMeterId: '',
+    email: '',
     thresholdKwh: '20',
-    reminderEnabled: true,
     loading: true,
     saving: false,
     queryingAll: false,
-    scheduledChecking: false,
-    scheduledDate: toPickerDate(getDefaultNextCheckAt()),
-    scheduledTime: toPickerTime(getDefaultNextCheckAt()),
-    scheduledCheckText: formatScheduleText(
-      toPickerDate(getDefaultNextCheckAt()),
-      toPickerTime(getDefaultNextCheckAt()),
-    ),
-    checkIntervalMinutes: '1',
     notificationSubscribeStatus: 'unknown' as SubscribeStatus,
-    notificationSubscribeStatusText: formatSubscribeStatusText('unknown'),
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
@@ -177,40 +88,21 @@ Page({
       const app = getApp<IAppOption>()
       app.globalData.openid = result.openid
       const config = result.config
-
       const lightMeterId = config ? config.lightMeterId : ''
       const acMeterId = config ? config.acMeterId : ''
-      const nextCheckAt = toDate(result.meters && result.meters.light
-        ? result.meters.light.nextCheckAt
-        : undefined) || toDate(result.meters && result.meters.ac
-          ? result.meters.ac.nextCheckAt
-          : undefined) || getDefaultNextCheckAt()
-      const scheduledDate = toPickerDate(nextCheckAt)
-      const scheduledTime = toPickerTime(nextCheckAt)
+      const email = config && config.email ? config.email : ''
       const notificationSubscribeStatus = normalizeSubscribeStatus(config && config.subscribeStatus)
-      const checkIntervalMinutes = result.meters && result.meters.light && result.meters.light.checkIntervalMinutes
-        ? String(result.meters.light.checkIntervalMinutes)
-        : result.meters && result.meters.ac && result.meters.ac.checkIntervalMinutes
-          ? String(result.meters.ac.checkIntervalMinutes)
-          : this.data.checkIntervalMinutes
 
       this.setData({
         openid: result.openid,
         openidText: `已登录 ${maskOpenid(result.openid)}`,
         lightMeterId,
         acMeterId,
+        email,
         thresholdKwh: config && config.thresholdKwh
           ? String(config.thresholdKwh)
           : this.data.thresholdKwh,
-        reminderEnabled: config && config.reminderEnabled !== undefined
-          ? config.reminderEnabled
-          : true,
-        scheduledDate,
-        scheduledTime,
-        scheduledCheckText: formatScheduleText(scheduledDate, scheduledTime),
-        checkIntervalMinutes,
         notificationSubscribeStatus,
-        notificationSubscribeStatusText: formatSubscribeStatusText(notificationSubscribeStatus),
         lightPower: createMeterView('照明', lightMeterId),
         acPower: createMeterView('空调', acMeterId),
       })
@@ -241,76 +133,28 @@ Page({
     })
   },
 
+  onEmailInput(event: InputEvent) {
+    this.setData({
+      email: event.detail.value.trim(),
+    })
+  },
+
   onThresholdInput(event: InputEvent) {
     this.setData({
       thresholdKwh: event.detail.value,
     })
   },
 
-  async onReminderSwitch(event: SwitchEvent) {
-    if (!event.detail.value) {
-      this.setData({
-        reminderEnabled: false,
-        notificationSubscribeStatus: 'rejected',
-        notificationSubscribeStatusText: formatSubscribeStatusText('rejected'),
-        message: '低电量提醒已关闭',
-      })
-      await this.saveCurrentConfigSilently()
-      return
-    }
-
-    const subscribeStatus = await requestPowerNotificationSubscribe()
-    const notificationSubscribeStatus = subscribeStatus === 'accepted' || subscribeStatus === 'rejected'
-      ? subscribeStatus
-      : 'unknown'
-    const reminderEnabled = notificationSubscribeStatus === 'accepted'
-
-    this.setData({
-      reminderEnabled,
-      notificationSubscribeStatus,
-      notificationSubscribeStatusText: formatSubscribeStatusText(notificationSubscribeStatus),
-      message: formatSubscribeMessage(subscribeStatus),
-    })
-
-    await this.saveCurrentConfigSilently()
-  },
-
-  onScheduledDateChange(event: InputEvent) {
-    const scheduledDate = event.detail.value
-    this.setData({
-      scheduledDate,
-      scheduledCheckText: formatScheduleText(scheduledDate, this.data.scheduledTime),
-    })
-  },
-
-  onScheduledTimeChange(event: InputEvent) {
-    const scheduledTime = event.detail.value
-    this.setData({
-      scheduledTime,
-      scheduledCheckText: formatScheduleText(this.data.scheduledDate, scheduledTime),
-    })
-  },
-
-  onCheckIntervalInput(event: InputEvent) {
-    this.setData({
-      checkIntervalMinutes: event.detail.value,
-    })
-  },
-
-  buildSavePayload(silent = false): SaveConfigPayload | undefined {
+  buildSavePayload(silent = false, subscribeStatus?: SubscribeStatus): SaveConfigPayload | undefined {
     const thresholdKwh = Number(this.data.thresholdKwh)
-    const nextCheckAt = parsePickerDateTime(this.data.scheduledDate, this.data.scheduledTime)
-    const checkIntervalMinutes = Number(this.data.checkIntervalMinutes)
+    const notificationSubscribeStatus = subscribeStatus || this.data.notificationSubscribeStatus
     const payload: SaveConfigPayload = {
       lightMeterId: this.data.lightMeterId.trim(),
       acMeterId: this.data.acMeterId.trim(),
+      email: this.data.email.trim(),
       thresholdKwh,
-      reminderEnabled: this.data.reminderEnabled,
-      nextCheckAt: nextCheckAt ? nextCheckAt.toISOString() : undefined,
-      checkIntervalMinutes,
-      notificationSubscribeStatus: this.data.notificationSubscribeStatus === 'unknown'
-        ? undefined
-        : this.data.notificationSubscribeStatus,
+      reminderEnabled: true,
+      notificationSubscribeStatus,
     }
 
     if (!payload.lightMeterId) {
@@ -334,6 +178,20 @@ Page({
       return undefined
     }
 
+    if (!payload.email) {
+      if (!silent) {
+        this.setData({ message: '请填写提醒邮箱' })
+      }
+      return undefined
+    }
+
+    if (!isValidEmail(payload.email)) {
+      if (!silent) {
+        this.setData({ message: '提醒邮箱格式不正确' })
+      }
+      return undefined
+    }
+
     if (!Number.isFinite(payload.thresholdKwh) || payload.thresholdKwh <= 0) {
       if (!silent) {
         this.setData({ message: '提醒阈值必须大于 0' })
@@ -341,47 +199,13 @@ Page({
       return undefined
     }
 
-    if (!nextCheckAt) {
-      if (!silent) {
-        this.setData({ message: '定时查询时间不正确' })
-      }
-      return undefined
-    }
-
-    if (!Number.isFinite(checkIntervalMinutes) || checkIntervalMinutes < 1) {
-      if (!silent) {
-        this.setData({ message: '查询间隔不能小于 1 分钟' })
-      }
-      return undefined
-    }
-
     return payload
   },
 
-  async saveCurrentConfigSilently() {
-    const payload = this.buildSavePayload(true)
-
-    if (!payload) {
-      return
-    }
-
-    try {
-      const result = await savePowerConfig(payload)
-
-      if (!result.ok) {
-        throw new Error(result.error || '配置保存失败')
-      }
-    } catch (error) {
-      this.setData({
-        message: error instanceof Error ? error.message : '配置保存失败',
-      })
-    }
-  },
-
   async onSaveConfig() {
-    const payload = this.buildSavePayload()
+    const initialPayload = this.buildSavePayload()
 
-    if (!payload) {
+    if (!initialPayload) {
       return
     }
 
@@ -391,6 +215,12 @@ Page({
     })
 
     try {
+      const payload = this.buildSavePayload(false)
+
+      if (!payload) {
+        return
+      }
+
       const result = await savePowerConfig(payload)
 
       if (!result.ok) {
@@ -398,7 +228,7 @@ Page({
       }
 
       this.setData({
-        message: '配置已保存',
+        message: '配置已保存，低电量提醒将发送到邮箱',
         lightPower: createMeterView('照明', payload.lightMeterId),
         acPower: createMeterView('空调', payload.acMeterId),
       })
@@ -461,27 +291,4 @@ Page({
       })
     }
   },
-
-  async onRunScheduledCheck() {
-    this.setData({
-      scheduledChecking: true,
-      message: '',
-    })
-
-    try {
-      const result = await runScheduledCheck()
-      this.setData({
-        message: formatScheduledCheckMessage(result),
-      })
-    } catch (error) {
-      this.setData({
-        message: error instanceof Error ? error.message : '定时查询执行失败，请稍后重试',
-      })
-    } finally {
-      this.setData({
-        scheduledChecking: false,
-      })
-    }
-  },
-
 })

@@ -14,6 +14,7 @@
 | `openid` | string | 是 | 微信用户 openid |
 | `lightMeterId` | string | 是 | 宿舍照明电表号 |
 | `acMeterId` | string | 是 | 宿舍空调电表号 |
+| `email` | string | 是 | 接收低电量邮件提醒的邮箱 |
 | `thresholdKwh` | number | 是 | 低电量提醒阈值，单位 kWh |
 | `reminderEnabled` | boolean | 是 | 是否开启提醒 |
 | `subscribeStatus` | string | 是 | 订阅消息授权状态：`unknown`、`accepted`、`rejected` |
@@ -90,15 +91,17 @@
 | --- | --- | --- | --- |
 | `_id` | string | 是 | 云数据库文档 ID |
 | `openid` | string | 是 | 接收提醒的用户 openid |
+| `email` | string | 否 | 邮件提醒收件邮箱 |
 | `meterId` | string | 是 | 触发提醒的电表号 |
 | `type` | string | 否 | 本次提醒对应的电表类型：`light` 或 `ac` |
+| `channel` | string | 否 | 提醒渠道，当前为 `email` |
 | `remainingKwh` | number | 是 | 触发时剩余电量 |
 | `thresholdKwh` | number | 是 | 用户配置的提醒阈值 |
 | `sentAt` | Date | 是 | 发送或尝试发送时间 |
 | `status` | string | 是 | 状态：`pending`、`sent`、`failed`、`skipped` |
 | `error` | string | 否 | 发送失败原因 |
 
-手动查询订阅消息 MVP 阶段，`queryPower` 只对照明电表查询结果发送订阅消息。照明电量查询成功且能解析到剩余电量后写入通知记录：用户接受订阅授权时尝试发送，结果记录为 `sent` 或 `failed`；用户拒绝授权或授权流程不可用时不发送，记录为 `skipped`。发送失败不会影响本次电量查询结果返回。
+当前提醒渠道为邮件。`queryPower` 和 `scheduledCheck` 会在照明或空调电表查询成功、解析到剩余电量，并且剩余电量小于等于用户 `thresholdKwh` 时调用邮件提醒云函数。微信订阅消息接口暂时保留但不再实际发送。发送失败不会影响本次电量查询结果返回。
 
 索引建议：
 
