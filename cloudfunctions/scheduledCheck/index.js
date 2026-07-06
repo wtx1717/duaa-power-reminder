@@ -10,7 +10,8 @@ const COLLECTIONS = {
   jobLocks: 'job_locks',
 }
 
-const POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
+const DEFAULT_POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
+const XYL_AC_POWER_BASE_URL = 'https://xylktsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
 const MAX_METERS_PER_RUN = 20
@@ -107,8 +108,20 @@ function parseAddress(html) {
   return undefined
 }
 
-function fetchPowerPage(meterId) {
-  const url = new URL(POWER_BASE_URL)
+function shouldUseXueyuanRoadAcSite(meterId, type) {
+  const normalizedMeterId = String(meterId || '').trim()
+
+  return type === 'ac' && /^\d+$/.test(normalizedMeterId) && Number(normalizedMeterId) < 10000
+}
+
+function selectPowerBaseUrl(meterId, type) {
+  return shouldUseXueyuanRoadAcSite(meterId, type)
+    ? XYL_AC_POWER_BASE_URL
+    : DEFAULT_POWER_BASE_URL
+}
+
+function fetchPowerPage(meterId, type) {
+  const url = new URL(selectPowerBaseUrl(meterId, type))
   url.searchParams.set('id', meterId)
 
   return new Promise((resolve, reject) => {
@@ -322,7 +335,7 @@ async function getDueMeters(db) {
     .get()
 }
 
-async function queryMeter(meter) {
+async function queryMeter(meter, type) {
   const meterId = String(meter.meterId || '').trim()
   const queriedAt = new Date()
 
@@ -336,7 +349,7 @@ async function queryMeter(meter) {
   }
 
   try {
-    const html = await fetchPowerPage(meterId)
+    const html = await fetchPowerPage(meterId, type)
     const remainingKwh = parseRemainingKwh(html)
 
     if (remainingKwh === undefined) {
@@ -545,7 +558,7 @@ function getMeterType(meter) {
 
 async function processMeter(db, meter) {
   const type = getMeterType(meter)
-  const record = await queryMeter(meter)
+  const record = await queryMeter(meter, type)
 
   await db.collection(COLLECTIONS.powerRecords).add({
     data: {

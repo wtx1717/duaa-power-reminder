@@ -9,7 +9,8 @@ const COLLECTIONS = {
   notificationRecords: 'notification_records',
 }
 
-const POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
+const DEFAULT_POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
+const XYL_AC_POWER_BASE_URL = 'https://xylktsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 // TODO: Move this template id to a cloud environment variable before production.
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
@@ -103,8 +104,20 @@ function parseAddress(html) {
   return undefined
 }
 
-function fetchPowerPage(meterId) {
-  const url = new URL(POWER_BASE_URL)
+function shouldUseXueyuanRoadAcSite(meterId, type) {
+  const normalizedMeterId = String(meterId || '').trim()
+
+  return type === 'ac' && /^\d+$/.test(normalizedMeterId) && Number(normalizedMeterId) < 10000
+}
+
+function selectPowerBaseUrl(meterId, type) {
+  return shouldUseXueyuanRoadAcSite(meterId, type)
+    ? XYL_AC_POWER_BASE_URL
+    : DEFAULT_POWER_BASE_URL
+}
+
+function fetchPowerPage(meterId, type) {
+  const url = new URL(selectPowerBaseUrl(meterId, type))
   url.searchParams.set('id', meterId)
 
   return new Promise((resolve, reject) => {
@@ -379,7 +392,7 @@ exports.main = async (event) => {
   let record
 
   try {
-    const html = await fetchPowerPage(meterId)
+    const html = await fetchPowerPage(meterId, type)
     const remainingKwh = parseRemainingKwh(html)
 
     if (remainingKwh === undefined) {
