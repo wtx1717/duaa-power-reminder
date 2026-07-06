@@ -6,16 +6,13 @@ const COLLECTIONS = {
   userConfigs: 'user_configs',
   meters: 'meters',
   powerRecords: 'power_records',
-  notificationRecords: 'notification_records',
 }
 
 const DEFAULT_POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const XYL_AC_POWER_BASE_URL = 'https://xylktsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
-// TODO: Move this template id to a cloud environment variable before production.
-const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
-const MIN_CHECK_INTERVAL_MINUTES = 1
+const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -173,16 +170,16 @@ async function updateMeter(db, record, type) {
   const meters = db.collection(COLLECTIONS.meters)
   const existing = await meters.where({ meterId: record.meterId }).get()
   const current = existing.data[0]
-  const checkIntervalMinutes = normalizeCheckIntervalMinutes(current && current.checkIntervalMinutes)
   const data = {
     type,
-    lastRemainingKwh: record.remainingKwh,
     lastQueriedAt: record.queriedAt,
-    nextCheckAt: new Date(Date.now() + checkIntervalMinutes * 60 * 1000),
-    checkIntervalMinutes,
     failCount: record.ok ? 0 : ((current && current.failCount) || 0) + 1,
     lastError: record.error || '',
     updatedAt: now,
+  }
+
+  if (record.remainingKwh !== undefined) {
+    data.lastRemainingKwh = record.remainingKwh
   }
 
   if (current && current._id) {
@@ -194,55 +191,20 @@ async function updateMeter(db, record, type) {
     data: {
       meterId: record.meterId,
       createdAt: now,
+      nextCheckAt: new Date(),
+      checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+      estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+      scheduleMode: 'normal',
       ...data,
     },
   })
-}
 
-function normalizeCheckIntervalMinutes(value) {
-  const minutes = Number(value)
-
-  if (!Number.isFinite(minutes) || minutes < MIN_CHECK_INTERVAL_MINUTES) {
-    return DEFAULT_CHECK_INTERVAL_MINUTES
-  }
-
-  return Math.floor(minutes)
 }
 
 function normalizeSubscribeStatus(value) {
   return value === 'accepted' || value === 'rejected' || value === 'skipped'
     ? value
     : 'skipped'
-}
-
-function normalizeEmail(value) {
-  return String(value || '').trim().toLowerCase()
-}
-
-function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
-
-function pad(value) {
-  return String(value).padStart(2, '0')
-}
-
-function formatDateTime(value) {
-  const date = value instanceof Date ? value : new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function limitThing(value) {
-  return String(value || '').slice(0, 20)
-}
-
-function getMeterTypeLabel(type) {
-  return type === 'ac' ? '空调电表' : '照明电表'
 }
 
 async function updateSubscribeStatus(db, config, subscribeStatus) {
@@ -259,110 +221,6 @@ async function updateSubscribeStatus(db, config, subscribeStatus) {
     })
   } catch (error) {
     console.error('Failed to update subscribe status', error)
-  }
-}
-
-async function recordNotification(db, input) {
-  const data = {
-    openid: input.openid,
-    email: input.email,
-    meterId: input.record.meterId,
-    remainingKwh: input.record.remainingKwh,
-    thresholdKwh: input.thresholdKwh,
-    sentAt: db.serverDate(),
-    status: input.result.status,
-    type: input.type,
-    channel: 'email',
-    source: 'queryPower',
-  }
-
-  if (input.result.error) {
-    data.error = input.result.error
-  }
-
-  await db.collection(COLLECTIONS.notificationRecords).add({
-    data,
-  })
-}
-
-async function sendPowerQueryNotification(input) {
-  return {
-    status: 'skipped',
-    error: '微信订阅消息已停用，使用邮件提醒',
-  }
-}
-
-function shouldSendEmailNotification(input) {
-  const thresholdKwh = Number(input.config && input.config.thresholdKwh)
-  const email = normalizeEmail(input.config && input.config.email)
-
-  if (!input.config || input.config.reminderEnabled !== true) {
-    return false
-  }
-
-  if (!input.record.ok || input.record.remainingKwh === undefined) {
-    return false
-  }
-
-  if (!Number.isFinite(thresholdKwh) || thresholdKwh <= 0) {
-    return false
-  }
-
-  if (!email || !isValidEmail(email)) {
-    return false
-  }
-
-  return input.record.remainingKwh <= thresholdKwh
-}
-
-async function sendEmailNotification(input) {
-  try {
-    const response = await cloud.callFunction({
-      name: 'sendEmailNotification',
-      data: {
-        openid: input.openid,
-        email: normalizeEmail(input.config.email),
-        meterId: input.record.meterId,
-        type: input.type,
-        remainingKwh: input.record.remainingKwh,
-        thresholdKwh: input.config.thresholdKwh,
-        queriedAt: input.record.queriedAt,
-        address: input.record.address || '',
-        source: 'queryPower',
-      },
-    })
-    const result = response && response.result
-
-    return {
-      status: result && result.status ? result.status : 'failed',
-      error: result && result.error,
-    }
-  } catch (error) {
-    return {
-      status: 'failed',
-      error: error instanceof Error ? error.message : String(error),
-    }
-  }
-}
-
-async function notifyAfterSuccessfulQuery(db, input) {
-  if (!shouldSendEmailNotification(input)) {
-    return
-  }
-
-  try {
-    const result = await sendEmailNotification(input)
-
-    await recordNotification(db, {
-      openid: input.openid,
-      email: normalizeEmail(input.config.email),
-      type: input.type,
-      record: input.record,
-      thresholdKwh: input.config.thresholdKwh,
-      result,
-    })
-  } catch (error) {
-    console.error('Failed to process notification result', error)
   }
 }
 
@@ -422,16 +280,13 @@ exports.main = async (event) => {
   }
 
   await db.collection(COLLECTIONS.powerRecords).add({
-    data: record,
+    data: {
+      ...record,
+      type,
+      source: 'queryPower',
+    },
   })
   await updateMeter(db, record, type)
-  await notifyAfterSuccessfulQuery(db, {
-    openid: OPENID,
-    type,
-    record,
-    config,
-    subscribeStatus,
-  })
 
   return record
 }

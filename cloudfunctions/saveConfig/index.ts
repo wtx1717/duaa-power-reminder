@@ -20,6 +20,8 @@ type ValidatedSaveConfigInput = Pick<
 >
 
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
+const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
+const DEFAULT_SCHEDULE_MODE = 'normal'
 
 function normalizeMeterId(value: string): string {
   return String(value || '').trim()
@@ -90,6 +92,10 @@ async function upsertMeter(
   const data: Record<string, unknown> = {
     type,
     checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+    estimatedDailyUsageKwh: Number.isFinite(Number(current?.estimatedDailyUsageKwh))
+      ? Number(current?.estimatedDailyUsageKwh)
+      : DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+    scheduleMode: current?.scheduleMode || DEFAULT_SCHEDULE_MODE,
     updatedAt: now,
   }
 
@@ -105,6 +111,8 @@ async function upsertMeter(
       failCount: 0,
       nextCheckAt: new Date(),
       checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+      estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+      scheduleMode: DEFAULT_SCHEDULE_MODE,
       createdAt: now,
       updatedAt: now,
     },

@@ -1,6 +1,6 @@
 # 程序逻辑链路图
 
-当前版本以“用户保存配置 -> 查询电量 -> 按阈值判断 -> 邮件提醒”为主链路。微信订阅消息接口保留，但不再实际弹窗或发送。
+当前版本以“用户保存配置 -> 后台定时查询 -> 按阈值判断 -> 邮件提醒”为主链路。手动查询只用于查看当前电量和保留查询历史，不参与调度估算或低电量周期提醒判断。微信订阅消息接口保留，但不再实际弹窗或发送。
 
 ```mermaid
 flowchart TD
@@ -20,14 +20,10 @@ flowchart TD
   K --> L2["queryPower 查询空调电表"]
   L1 --> M1["请求学校电量页面并解析剩余电量"]
   L2 --> M2["请求学校电量页面并解析剩余电量"]
-  M1 --> N1["写入 power_records 并更新 meters"]
-  M2 --> N2["写入 power_records 并更新 meters"]
-  N1 --> O1{"查询成功且 remainingKwh <= thresholdKwh?"}
-  N2 --> O2{"查询成功且 remainingKwh <= thresholdKwh?"}
-  O1 -- "否" --> P1["只返回查询结果"]
-  O2 -- "否" --> P2["只返回查询结果"]
-  O1 -- "是" --> Q["调用 sendEmailNotification"]
-  O2 -- "是" --> Q
+  M1 --> N1["写入 source=queryPower 的 power_records"]
+  M2 --> N2["写入 source=queryPower 的 power_records"]
+  N1 --> P1["更新 meters 展示字段并返回查询结果"]
+  N2 --> P2["更新 meters 展示字段并返回查询结果"]
 
   R["定时触发 scheduledCheck"] --> S["获取 job_locks 防并发锁"]
   S --> T["读取 nextCheckAt 到期的 meters"]
@@ -48,8 +44,9 @@ flowchart TD
 ## 关键规则
 
 - 保存配置时邮箱必填，旧用户需要重新保存一次配置补齐 `email`。
-- 照明和空调电表都会参与提醒判断。
-- 邮件提醒触发条件是 `remainingKwh <= thresholdKwh`。
+- 照明和空调电表都会参与后台提醒判断。
+- 邮件提醒只由 `scheduledCheck` 触发，触发条件是后台查询结果 `remainingKwh <= thresholdKwh`。
+- `queryPower` 写入 `source=queryPower` 的历史记录，但不更新 `nextCheckAt`、`scheduleMode` 或 `estimatedDailyUsageKwh`。
 - 邮件中的查询时间按 `MAIL_TIME_ZONE` 环境变量格式化，未配置时默认使用 `Asia/Shanghai`。
 - `notification_records.channel` 当前写入 `email`。
 

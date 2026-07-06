@@ -1,9 +1,11 @@
 export type MeterType = 'light' | 'ac'
+export type MeterScheduleMode = 'normal' | 'near_threshold' | 'notified'
 
 export type SubscribeStatus = 'unknown' | 'accepted' | 'rejected'
 export type NotificationSubscribeStatus = 'accepted' | 'rejected' | 'skipped'
 
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'skipped'
+export type PowerRecordSource = 'queryPower' | 'scheduledCheck'
 
 export interface UserConfig {
   _id?: string
@@ -26,6 +28,10 @@ export interface Meter {
   lastQueriedAt?: Date
   nextCheckAt?: Date
   checkIntervalMinutes?: number
+  estimatedDailyUsageKwh?: number
+  scheduleMode?: MeterScheduleMode
+  lastRechargeDetectedAt?: Date
+  lowPowerNotifiedAt?: Date
   failCount: number
   lastError?: string
   createdAt: Date
@@ -44,6 +50,8 @@ export interface PowerQueryResult {
 
 export interface PowerRecord extends PowerQueryResult {
   _id?: string
+  type?: MeterType
+  source?: PowerRecordSource
 }
 
 export interface NotificationRecord {

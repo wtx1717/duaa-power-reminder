@@ -17,6 +17,13 @@ const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
 const MAX_METERS_PER_RUN = 20
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const MIN_CHECK_INTERVAL_MINUTES = 1
+const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
+const MIN_ESTIMATED_DAILY_USAGE_KWH = 0.5
+const SAFETY_MARGIN_DAYS = 2
+const NEAR_THRESHOLD_BAND_KWH = 5
+const RECHARGE_DELTA_KWH = 5
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 1
 const LOCK_NAME = 'scheduledCheck'
 const LOCK_TTL_MS = 10 * 60 * 1000
 
@@ -206,6 +213,134 @@ function normalizeCheckIntervalMinutes(value) {
   return Math.floor(minutes)
 }
 
+function normalizeEstimatedDailyUsageKwh(value) {
+  const usage = Number(value)
+
+  if (!Number.isFinite(usage) || usage < MIN_ESTIMATED_DAILY_USAGE_KWH) {
+    return DEFAULT_ESTIMATED_DAILY_USAGE_KWH
+  }
+
+  return usage
+}
+
+function normalizeThresholdKwh(value) {
+  const thresholdKwh = Number(value)
+  return Number.isFinite(thresholdKwh) && thresholdKwh > 0 ? thresholdKwh : undefined
+}
+
+function getMaxThresholdKwh(configs) {
+  const thresholds = (configs || [])
+    .map((config) => normalizeThresholdKwh(config && config.thresholdKwh))
+    .filter((value) => value !== undefined)
+
+  return thresholds.length ? Math.max(...thresholds) : undefined
+}
+
+function calculateScheduleState(input) {
+  const now = input.now || new Date()
+  const meter = input.meter || {}
+  const record = input.record
+  const previousRecord = input.previousRecord
+  const thresholdKwh = normalizeThresholdKwh(input.thresholdKwh)
+  const previousMode = meter.scheduleMode || 'normal'
+  const previousEstimate = normalizeEstimatedDailyUsageKwh(meter.estimatedDailyUsageKwh)
+  let estimatedDailyUsageKwh = previousEstimate
+  let rechargeDetected = false
+  let scheduleMode = previousMode === 'notified' ? 'notified' : 'normal'
+  let nextCheckAt = new Date(now.getTime() + normalizeCheckIntervalMinutes(meter.checkIntervalMinutes) * 60 * 1000)
+  let lastRechargeDetectedAt = meter.lastRechargeDetectedAt
+  let lowPowerNotifiedAt = meter.lowPowerNotifiedAt
+
+  if (!record.ok || record.remainingKwh === undefined || thresholdKwh === undefined) {
+    return {
+      estimatedDailyUsageKwh,
+      scheduleMode,
+      nextCheckAt,
+      rechargeDetected,
+      lastRechargeDetectedAt,
+      lowPowerNotifiedAt,
+      previousMode,
+    }
+  }
+
+  const previousRemainingKwh = previousRecord && previousRecord.remainingKwh
+  const previousQueriedAt = asDate(previousRecord && previousRecord.queriedAt)
+
+  if (previousRemainingKwh !== undefined && record.remainingKwh >= previousRemainingKwh + RECHARGE_DELTA_KWH) {
+    rechargeDetected = true
+    lastRechargeDetectedAt = record.queriedAt
+    lowPowerNotifiedAt = null
+    scheduleMode = 'normal'
+  }
+
+  if (!rechargeDetected && previousRemainingKwh !== undefined && previousQueriedAt) {
+    const elapsedDays = (record.queriedAt.getTime() - previousQueriedAt.getTime()) / ONE_DAY_MS
+    const observedDailyUsage = (previousRemainingKwh - record.remainingKwh) / elapsedDays
+
+    if (elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS && observedDailyUsage > 0) {
+      estimatedDailyUsageKwh = Math.max(
+        MIN_ESTIMATED_DAILY_USAGE_KWH,
+        previousEstimate * 0.7 + observedDailyUsage * 0.3,
+      )
+    }
+  }
+
+  const distanceToThreshold = record.remainingKwh - thresholdKwh
+
+  if (distanceToThreshold <= 0) {
+    scheduleMode = 'notified'
+    nextCheckAt = new Date(now.getTime() + ONE_DAY_MS)
+    lowPowerNotifiedAt = previousMode === 'notified' && !rechargeDetected && lowPowerNotifiedAt
+      ? lowPowerNotifiedAt
+      : record.queriedAt
+  } else if (distanceToThreshold <= NEAR_THRESHOLD_BAND_KWH) {
+    scheduleMode = 'near_threshold'
+    nextCheckAt = new Date(now.getTime() + ONE_DAY_MS)
+    lowPowerNotifiedAt = null
+  } else {
+    scheduleMode = 'normal'
+    const daysUntilThreshold = distanceToThreshold / estimatedDailyUsageKwh
+    const daysUntilNextCheck = Math.max(1, daysUntilThreshold - SAFETY_MARGIN_DAYS)
+    nextCheckAt = new Date(now.getTime() + daysUntilNextCheck * ONE_DAY_MS)
+    lowPowerNotifiedAt = null
+  }
+
+  return {
+    estimatedDailyUsageKwh,
+    scheduleMode,
+    nextCheckAt,
+    rechargeDetected,
+    lastRechargeDetectedAt,
+    lowPowerNotifiedAt,
+    previousMode,
+  }
+}
+
+async function getPreviousSuccessfulPowerRecord(db, meterId) {
+  try {
+    const result = await db.collection(COLLECTIONS.powerRecords)
+      .where({
+        meterId,
+      })
+      .orderBy('queriedAt', 'desc')
+      .limit(50)
+      .get()
+
+    return result.data.find((record) => (
+      record
+      && record.source === 'scheduledCheck'
+      && record.ok === true
+      && record.remainingKwh !== undefined
+    ))
+  } catch (error) {
+    console.warn('Failed to read previous power record', {
+      meterId,
+      error,
+    })
+    return undefined
+  }
+}
+
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase()
 }
@@ -379,14 +514,25 @@ async function queryMeter(meter, type) {
   }
 }
 
-async function updateMeter(db, meter, record, type) {
+async function updateMeter(db, meter, record, type, options) {
   const now = db.serverDate()
   const checkIntervalMinutes = normalizeCheckIntervalMinutes(meter && meter.checkIntervalMinutes)
+  const schedule = calculateScheduleState({
+    meter,
+    record,
+    previousRecord: options && options.previousRecord,
+    thresholdKwh: options && options.thresholdKwh,
+    now: record.queriedAt,
+  })
   const data = {
     type,
     lastQueriedAt: record.queriedAt,
-    nextCheckAt: new Date(Date.now() + checkIntervalMinutes * 60 * 1000),
+    nextCheckAt: schedule.nextCheckAt,
     checkIntervalMinutes,
+    estimatedDailyUsageKwh: schedule.estimatedDailyUsageKwh,
+    scheduleMode: schedule.scheduleMode,
+    lastRechargeDetectedAt: schedule.lastRechargeDetectedAt || null,
+    lowPowerNotifiedAt: schedule.lowPowerNotifiedAt || null,
     failCount: record.ok ? 0 : ((meter && meter.failCount) || 0) + 1,
     lastError: record.error || '',
     updatedAt: now,
@@ -398,7 +544,7 @@ async function updateMeter(db, meter, record, type) {
 
   if (meter && meter._id) {
     await db.collection(COLLECTIONS.meters).doc(meter._id).update({ data })
-    return
+    return schedule
   }
 
   await db.collection(COLLECTIONS.meters).add({
@@ -408,6 +554,8 @@ async function updateMeter(db, meter, record, type) {
       ...data,
     },
   })
+
+  return schedule
 }
 
 async function findBoundReminderConfigs(db, meterId, type) {
@@ -448,7 +596,7 @@ async function sendPowerQueryNotification(input) {
   }
 }
 
-function shouldSendEmailNotification(config, record) {
+function shouldSendEmailNotification(config, record, schedule) {
   const thresholdKwh = Number(config && config.thresholdKwh)
   const email = normalizeEmail(config && config.email)
 
@@ -469,6 +617,38 @@ function shouldSendEmailNotification(config, record) {
   }
 
   return record.remainingKwh <= thresholdKwh
+}
+
+async function hasSentNotificationInCurrentLowPowerCycle(db, input) {
+  const cycleStart = asDate(input.schedule && input.schedule.lowPowerNotifiedAt)
+  const query = {
+    openid: input.config.openid,
+    meterId: input.record.meterId,
+    type: input.type,
+    channel: 'email',
+    status: 'sent',
+  }
+
+  if (cycleStart) {
+    query.sentAt = db.command.gte(cycleStart)
+  }
+
+  try {
+    const result = await db.collection(COLLECTIONS.notificationRecords)
+      .where(query)
+      .limit(1)
+      .get()
+
+    return result.data.length > 0
+  } catch (error) {
+    console.warn('Failed to read notification history', {
+      openid: input.config && input.config.openid,
+      meterId: input.record && input.record.meterId,
+      type: input.type,
+      error,
+    })
+    return false
+  }
 }
 
 async function sendEmailNotification(input) {
@@ -501,13 +681,22 @@ async function sendEmailNotification(input) {
   }
 }
 
-async function notifyUsersForMeter(db, record, type, configs) {
+async function notifyUsersForMeter(db, record, type, configs, schedule) {
   let sentNotifications = 0
   let failedNotifications = 0
   let skippedNotifications = 0
 
   for (const config of configs) {
-    if (!shouldSendEmailNotification(config, record)) {
+    if (!shouldSendEmailNotification(config, record, schedule)) {
+      continue
+    }
+
+    if (await hasSentNotificationInCurrentLowPowerCycle(db, {
+      config,
+      type,
+      record,
+      schedule,
+    })) {
       continue
     }
 
@@ -559,6 +748,9 @@ function getMeterType(meter) {
 async function processMeter(db, meter) {
   const type = getMeterType(meter)
   const record = await queryMeter(meter, type)
+  const previousRecord = await getPreviousSuccessfulPowerRecord(db, record.meterId)
+  const configs = await findBoundReminderConfigs(db, record.meterId, type)
+  const thresholdKwh = getMaxThresholdKwh(configs)
 
   await db.collection(COLLECTIONS.powerRecords).add({
     data: {
@@ -567,7 +759,10 @@ async function processMeter(db, meter) {
       source: 'scheduledCheck',
     },
   })
-  await updateMeter(db, meter, record, type)
+  const schedule = await updateMeter(db, meter, record, type, {
+    previousRecord,
+    thresholdKwh,
+  })
 
   if (!record.ok || record.remainingKwh === undefined) {
     return {
@@ -577,8 +772,7 @@ async function processMeter(db, meter) {
     }
   }
 
-  const configs = await findBoundReminderConfigs(db, record.meterId, type)
-  return notifyUsersForMeter(db, record, type, configs)
+  return notifyUsersForMeter(db, record, type, configs, schedule)
 }
 
 exports.main = async () => {

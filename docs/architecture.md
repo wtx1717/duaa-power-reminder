@@ -1,6 +1,6 @@
 # 项目架构
 
-北航宿舍电量提醒小程序采用微信原生小程序前端、云函数后端和云数据库的结构。当前阶段已经接入电量查询和邮件提醒，调度算法仍保持简单。
+北航宿舍电量提醒小程序采用微信原生小程序前端、云函数后端和云数据库的结构。当前阶段已经接入电量查询、邮件提醒和基于后台采样的单电表动态调度。
 
 ## 目录分层
 
@@ -25,8 +25,8 @@ docs/                 架构和数据库文档
 | --- | --- |
 | `login` | 获取当前微信用户 openid |
 | `saveConfig` | 校验并保存用户电表绑定、提醒阈值和提醒开关 |
-| `queryPower` | 查询单个电表电量并保存查询记录 |
-| `scheduledCheck` | 定时扫描到期电表，触发查询和低电量提醒 |
+| `queryPower` | 手动查询单个电表电量并保存 `source=queryPower` 的查询记录 |
+| `scheduledCheck` | 定时扫描到期电表，触发后台查询、动态调度和低电量提醒 |
 | `sendEmailNotification` | 使用 SMTP 发送低电量邮件提醒 |
 
 `cloudfunctions/shared/` 保存可复用模块：数据库集合名、领域类型、电量页面请求、HTML 解析、调度策略和订阅消息发送。当前这些模块只保留函数签名和 TODO，真实实现应在后续功能阶段补充。
@@ -49,8 +49,8 @@ docs/                 架构和数据库文档
 
 1. 获取 `job_locks` 中的 `scheduledCheck` 锁，避免多个任务实例同时运行。
 2. 从 `meters` 查询 `nextCheckAt <= now` 的电表。
-3. 对每个到期电表调用电量查询模块，解析并写入 `power_records`。
-4. 更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`nextCheckAt`、`failCount` 和 `lastError`。
+3. 对每个到期电表调用电量查询模块，解析并写入 `source=scheduledCheck` 的 `power_records`。
+4. 更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`nextCheckAt`、`estimatedDailyUsageKwh`、`scheduleMode`、`failCount` 和 `lastError`。
 5. 找到绑定该电表且开启提醒的 `user_configs`。
 6. 当剩余电量小于等于用户 `thresholdKwh` 时，调用邮件提醒云函数并写入 `notification_records`。
 7. 释放或更新任务锁。
@@ -61,11 +61,11 @@ docs/                 架构和数据库文档
 
 使用 `meters.meterId` 作为唯一状态源后，定时任务只需要查询每个电表一次，再把结果分发给绑定该电表的用户。这样也更容易积累电表级历史数据，后续可基于真实用电速度优化调度。
 
-## 当前阶段采用简单 nextCheckAt 的原因
+## 当前阶段的 nextCheckAt 策略
 
-MVP 初期没有足够历史数据判断不同宿舍、不同季节、照明和空调的用电速度。过早引入复杂算法会增加调试成本，也可能因为错误估计导致漏提醒。
+调度只使用后台 `scheduledCheck` 采样记录，不使用用户手动查询记录。新电表保存后会设置 `nextCheckAt = now`，由定时任务完成首次后台采样。
 
-因此 `planner.ts` 当前只返回 24 小时后，保证定时查询模型先跑通。等查询记录稳定积累后，再根据剩余电量、近期消耗速度、失败次数和提醒阈值逐步优化。
+首次后台采样只作为基线。后续只有当两次后台成功采样间隔至少 24 小时，且未检测到充值时，才用实际用电量平滑更新 `estimatedDailyUsageKwh`。剩余电量充足时按线性预测降低查询频率，接近阈值或已提醒时改为每天查询。
 
 ## 后续替换 planner.ts 的方向
 

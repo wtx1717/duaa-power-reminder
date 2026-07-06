@@ -72,6 +72,8 @@
 | `ok` | boolean | 是 | 本次查询是否成功 |
 | `error` | string | 否 | 失败原因 |
 | `queriedAt` | Date | 是 | 查询时间 |
+| `type` | string | 否 | 电表类型：`light` 或 `ac` |
+| `source` | string | 否 | 查询来源：`queryPower` 或 `scheduledCheck` |
 
 索引建议：
 
@@ -101,7 +103,7 @@
 | `status` | string | 是 | 状态：`pending`、`sent`、`failed`、`skipped` |
 | `error` | string | 否 | 发送失败原因 |
 
-当前提醒渠道为邮件。`queryPower` 和 `scheduledCheck` 会在照明或空调电表查询成功、解析到剩余电量，并且剩余电量小于等于用户 `thresholdKwh` 时调用邮件提醒云函数。微信订阅消息接口暂时保留但不再实际发送。发送失败不会影响本次电量查询结果返回。
+当前提醒渠道为邮件。低电量邮件由 `scheduledCheck` 在后台定时查询后触发；`queryPower` 是手动查询入口，只返回查询结果并保留 `source: 'queryPower'` 的历史记录，不参与日耗估算、调度状态更新或低电量周期提醒判断。微信订阅消息接口暂时保留但不再实际发送。发送失败不会影响本次电量查询结果返回。
 
 索引建议：
 

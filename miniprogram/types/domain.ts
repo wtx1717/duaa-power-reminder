@@ -1,4 +1,5 @@
 export type MeterType = 'light' | 'ac'
+export type MeterScheduleMode = 'normal' | 'near_threshold' | 'notified'
 
 export type SubscribeStatus = 'unknown' | 'accepted' | 'rejected'
 export type NotificationSubscribeStatus = 'accepted' | 'rejected' | 'skipped'
@@ -23,6 +24,10 @@ export interface MeterSnapshot {
   remainingKwh?: number
   nextCheckAt?: string
   checkIntervalMinutes?: number
+  estimatedDailyUsageKwh?: number
+  scheduleMode?: MeterScheduleMode
+  lastRechargeDetectedAt?: string
+  lowPowerNotifiedAt?: string
 }
 
 export interface SaveConfigPayload {

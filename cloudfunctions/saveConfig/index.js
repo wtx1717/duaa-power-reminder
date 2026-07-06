@@ -6,6 +6,8 @@ const COLLECTIONS = {
 }
 
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
+const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
+const DEFAULT_SCHEDULE_MODE = 'normal'
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -76,6 +78,10 @@ async function upsertMeter(db, meterId, type) {
   const data = {
     type,
     checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+    estimatedDailyUsageKwh: current && Number.isFinite(Number(current.estimatedDailyUsageKwh))
+      ? Number(current.estimatedDailyUsageKwh)
+      : DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+    scheduleMode: current && current.scheduleMode ? current.scheduleMode : DEFAULT_SCHEDULE_MODE,
     updatedAt: now,
   }
 
@@ -91,6 +97,8 @@ async function upsertMeter(db, meterId, type) {
       failCount: 0,
       nextCheckAt: new Date(),
       checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+      estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+      scheduleMode: DEFAULT_SCHEDULE_MODE,
       createdAt: now,
       updatedAt: now,
     },
