@@ -30,18 +30,6 @@
     </view>
 
     <view class="field">
-      <text class="label">提醒阈值 kWh</text>
-      <input
-        class="input"
-        type="digit"
-        value="{{thresholdKwh}}"
-        placeholder="例如 20"
-        placeholder-class="placeholder"
-        bindinput="onThresholdInput"
-      />
-    </view>
-
-    <view class="field">
       <text class="label">提醒邮箱</text>
       <input
         class="input"

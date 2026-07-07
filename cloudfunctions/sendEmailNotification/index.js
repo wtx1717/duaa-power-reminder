@@ -9,6 +9,7 @@ const DEFAULT_SMTP_HOST = 'smtp.163.com'
 const DEFAULT_SMTP_PORT = 465
 const DEFAULT_SMTP_USER = '13100162717@163.com'
 const DEFAULT_MAIL_TIME_ZONE = 'Asia/Shanghai'
+const DEFAULT_REMINDER_THRESHOLD_KWH = 20
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -124,7 +125,7 @@ function validateInput(event) {
   const meterId = String(event.meterId || '').trim()
   const type = normalizeType(event.type)
   const remainingKwh = parseFiniteNumber(event.remainingKwh)
-  const thresholdKwh = parseFiniteNumber(event.thresholdKwh)
+  const thresholdKwh = DEFAULT_REMINDER_THRESHOLD_KWH
   const source = event.source === 'scheduledCheck' ? 'scheduledCheck' : 'queryPower'
 
   if (!openid) {
@@ -145,10 +146,6 @@ function validateInput(event) {
 
   if (remainingKwh === undefined) {
     return { ok: false, status: 'skipped', error: 'Invalid remaining kWh' }
-  }
-
-  if (thresholdKwh === undefined || thresholdKwh <= 0) {
-    return { ok: false, status: 'skipped', error: 'Invalid threshold kWh' }
   }
 
   if (remainingKwh > thresholdKwh) {

@@ -63,7 +63,6 @@ Page({
     lightMeterId: '',
     acMeterId: '',
     email: '',
-    thresholdKwh: '20',
     loading: true,
     saving: false,
     queryingAll: false,
@@ -99,9 +98,6 @@ Page({
         lightMeterId,
         acMeterId,
         email,
-        thresholdKwh: config && config.thresholdKwh
-          ? String(config.thresholdKwh)
-          : this.data.thresholdKwh,
         notificationSubscribeStatus,
         lightPower: createMeterView('照明', lightMeterId),
         acPower: createMeterView('空调', acMeterId),
@@ -139,20 +135,12 @@ Page({
     })
   },
 
-  onThresholdInput(event: InputEvent) {
-    this.setData({
-      thresholdKwh: event.detail.value,
-    })
-  },
-
   buildSavePayload(silent = false, subscribeStatus?: SubscribeStatus): SaveConfigPayload | undefined {
-    const thresholdKwh = Number(this.data.thresholdKwh)
     const notificationSubscribeStatus = subscribeStatus || this.data.notificationSubscribeStatus
     const payload: SaveConfigPayload = {
       lightMeterId: this.data.lightMeterId.trim(),
       acMeterId: this.data.acMeterId.trim(),
       email: this.data.email.trim(),
-      thresholdKwh,
       reminderEnabled: true,
       notificationSubscribeStatus,
     }
@@ -188,13 +176,6 @@ Page({
     if (!isValidEmail(payload.email)) {
       if (!silent) {
         this.setData({ message: '提醒邮箱格式不正确' })
-      }
-      return undefined
-    }
-
-    if (!Number.isFinite(payload.thresholdKwh) || payload.thresholdKwh <= 0) {
-      if (!silent) {
-        this.setData({ message: '提醒阈值必须大于 0' })
       }
       return undefined
     }

@@ -15,7 +15,7 @@
 | `lightMeterId` | string | 是 | 宿舍照明电表号 |
 | `acMeterId` | string | 是 | 宿舍空调电表号 |
 | `email` | string | 是 | 接收低电量邮件提醒的邮箱 |
-| `thresholdKwh` | number | 是 | 低电量提醒阈值，单位 kWh |
+| `thresholdKwh` | number | 是 | 后端固定低电量提醒阈值，当前为 20 kWh |
 | `reminderEnabled` | boolean | 是 | 是否开启提醒 |
 | `subscribeStatus` | string | 是 | 订阅消息授权状态：`unknown`、`accepted`、`rejected` |
 | `createdAt` | Date | 是 | 创建时间 |
@@ -98,7 +98,7 @@
 | `type` | string | 否 | 本次提醒对应的电表类型：`light` 或 `ac` |
 | `channel` | string | 否 | 提醒渠道，当前为 `email` |
 | `remainingKwh` | number | 是 | 触发时剩余电量 |
-| `thresholdKwh` | number | 是 | 用户配置的提醒阈值 |
+| `thresholdKwh` | number | 是 | 本次通知使用的提醒阈值，当前为 20 kWh |
 | `sentAt` | Date | 是 | 发送或尝试发送时间 |
 | `status` | string | 是 | 状态：`pending`、`sent`、`failed`、`skipped` |
 | `error` | string | 否 | 发送失败原因 |

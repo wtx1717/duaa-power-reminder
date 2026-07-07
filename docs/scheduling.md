@@ -22,12 +22,12 @@
 ## 调度规则
 
 - `saveConfig` 新建电表时设置 `nextCheckAt = new Date()`，由每 2 分钟触发的 `scheduledCheck` 自动完成首次后台采样。
-- 每次后台成功查询后，使用绑定该电表且开启提醒的用户中的最高 `thresholdKwh` 计算调度时间。
-- 当 `remainingKwh <= thresholdKwh` 时进入 `notified`，下次查询为 1 天后。
-- 当 `remainingKwh - thresholdKwh <= 5` 时进入 `near_threshold`，下次查询为 1 天后。
-- 其他情况下按线性预测：`(remainingKwh - thresholdKwh) / estimatedDailyUsageKwh - 2` 天后查询，最短 1 天。
+- 每次后台成功查询后，使用后端固定提醒阈值 `20` kWh 计算调度时间。
+- 当 `remainingKwh <= 20` 时进入 `notified`，下次查询为 1 天后。
+- 当 `remainingKwh - 20 <= 5` 时进入 `near_threshold`，下次查询为 1 天后。
+- 其他情况下按线性预测：`(remainingKwh - 20) / estimatedDailyUsageKwh - 2` 天后查询，最短 1 天。
 - 若本次后台采样的剩余电量比上一条后台成功采样高至少 `5` kWh，判定为充值，清除当前低电量提醒状态并重新允许下一轮提醒。
-- 若用户在当前低电量周期内已经收到过成功发送的邮件，则定时任务不会重复发送同一轮低电量邮件；不同阈值的其他绑定用户仍会在各自到达阈值时收到提醒。
+- 若用户在当前低电量周期内已经收到过成功发送的邮件，则定时任务不会重复发送同一轮低电量邮件；绑定同一电表的其他用户也统一按 20 kWh 阈值判断提醒。
 
 ## 日耗估算
 

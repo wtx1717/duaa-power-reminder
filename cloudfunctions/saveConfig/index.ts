@@ -16,12 +16,16 @@ interface StoredDocument {
 
 type ValidatedSaveConfigInput = Pick<
   SaveConfigInput,
-  'lightMeterId' | 'acMeterId' | 'email' | 'thresholdKwh' | 'reminderEnabled'
+  'lightMeterId' | 'acMeterId' | 'email' | 'reminderEnabled'
+> & Pick<
+  UserConfig,
+  'thresholdKwh'
 >
 
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 const DEFAULT_SCHEDULE_MODE = 'normal'
+const DEFAULT_REMINDER_THRESHOLD_KWH = 20
 
 function normalizeMeterId(value: string): string {
   return String(value || '').trim()
@@ -39,7 +43,6 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
   const email = normalizeEmail(input.email)
-  const thresholdKwh = Number(input.thresholdKwh)
 
   if (!lightMeterId) {
     throw new Error('请填写宿舍照明电表号')
@@ -51,10 +54,6 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
 
   if (lightMeterId === acMeterId) {
     throw new Error('照明电表号和空调电表号不能相同')
-  }
-
-  if (!Number.isFinite(thresholdKwh) || thresholdKwh <= 0) {
-    throw new Error('提醒阈值必须大于 0')
   }
 
   if (!email) {
@@ -69,7 +68,7 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
     lightMeterId,
     acMeterId,
     email,
-    thresholdKwh,
+    thresholdKwh: DEFAULT_REMINDER_THRESHOLD_KWH,
     reminderEnabled: true,
   }
 }

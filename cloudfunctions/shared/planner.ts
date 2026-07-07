@@ -5,29 +5,24 @@ const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 const MIN_ESTIMATED_DAILY_USAGE_KWH = 0.5
 const SAFETY_MARGIN_DAYS = 2
 const NEAR_THRESHOLD_BAND_KWH = 5
+const DEFAULT_REMINDER_THRESHOLD_KWH = 20
 
 export interface ScheduleComputationInput {
   meter: Meter
   latestResult: PowerQueryResult
-  thresholdKwh?: number
   now?: Date
 }
 
 export function calculateNextCheckAt(
   meter: Meter,
   latestResult: PowerQueryResult,
-  thresholdKwh?: number,
   now = new Date(),
 ): Date {
   if (!latestResult.ok || latestResult.remainingKwh === undefined) {
     return new Date(now.getTime() + ONE_DAY_MS)
   }
 
-  if (thresholdKwh === undefined || !Number.isFinite(thresholdKwh) || thresholdKwh <= 0) {
-    return new Date(now.getTime() + ONE_DAY_MS)
-  }
-
-  const distanceToThreshold = latestResult.remainingKwh - thresholdKwh
+  const distanceToThreshold = latestResult.remainingKwh - DEFAULT_REMINDER_THRESHOLD_KWH
 
   if (distanceToThreshold <= NEAR_THRESHOLD_BAND_KWH) {
     return new Date(now.getTime() + ONE_DAY_MS)

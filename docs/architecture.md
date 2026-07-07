@@ -13,7 +13,7 @@ docs/                 架构和数据库文档
 
 ## 小程序前端职责
 
-前端负责微信登录入口、用户电表配置填写、提醒邮箱和提醒阈值设置、结果展示。前端只调用云函数，不保存任何敏感凭据，也不直接访问电量查询页面。
+前端负责微信登录入口、用户电表配置填写、提醒邮箱和结果展示。前端只调用云函数，不保存任何敏感凭据，也不直接访问电量查询页面。
 
 当前新增的 `miniprogram/services/` 只提供云函数调用封装和业务 API 占位，`miniprogram/types/` 保存前端领域类型。后续页面开发时应优先复用这些 service，避免页面直接散落 `wx.cloud.callFunction`。
 
@@ -24,7 +24,7 @@ docs/                 架构和数据库文档
 | 云函数 | 职责 |
 | --- | --- |
 | `login` | 获取当前微信用户 openid |
-| `saveConfig` | 校验并保存用户电表绑定、提醒阈值和提醒开关 |
+| `saveConfig` | 校验并保存用户电表绑定、提醒邮箱和提醒开关，后端固定提醒阈值为 20 kWh |
 | `queryPower` | 手动查询单个电表电量并保存 `source=queryPower` 的查询记录 |
 | `scheduledCheck` | 定时扫描到期电表，触发后台查询、动态调度和低电量提醒 |
 | `sendEmailNotification` | 使用 SMTP 发送低电量邮件提醒 |
@@ -52,7 +52,7 @@ docs/                 架构和数据库文档
 3. 对每个到期电表调用电量查询模块，解析并写入 `source=scheduledCheck` 的 `power_records`。
 4. 更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`nextCheckAt`、`estimatedDailyUsageKwh`、`scheduleMode`、`failCount` 和 `lastError`。
 5. 找到绑定该电表且开启提醒的 `user_configs`。
-6. 当剩余电量小于等于用户 `thresholdKwh` 时，调用邮件提醒云函数并写入 `notification_records`。
+6. 当剩余电量小于等于后端固定阈值 20 kWh 时，调用邮件提醒云函数并写入 `notification_records`。
 7. 释放或更新任务锁。
 
 ## 按唯一电表号去重的原因
@@ -77,6 +77,6 @@ docs/                 架构和数据库文档
 | 消耗速度估计 | 使用 `power_records` 计算最近几次 kWh/day |
 | 失败退避 | 页面异常或网络失败时使用短间隔重试，连续失败后延长间隔 |
 | 电表类型区分 | 空调电表在高用电季更频繁，照明电表保持较低频率 |
-| 用户阈值感知 | 按绑定用户中的最高阈值决定最晚检查时间 |
+| 固定阈值感知 | 按后端固定 20 kWh 阈值决定最晚检查时间 |
 
 这个设计让调度优化集中在 planner 模块内完成，避免影响前端、数据库集合和通知发送模块。

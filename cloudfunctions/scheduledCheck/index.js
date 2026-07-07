@@ -21,6 +21,7 @@ const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 const MIN_ESTIMATED_DAILY_USAGE_KWH = 0.5
 const SAFETY_MARGIN_DAYS = 2
 const NEAR_THRESHOLD_BAND_KWH = 5
+const DEFAULT_REMINDER_THRESHOLD_KWH = 20
 const RECHARGE_DELTA_KWH = 5
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 1
@@ -223,25 +224,12 @@ function normalizeEstimatedDailyUsageKwh(value) {
   return usage
 }
 
-function normalizeThresholdKwh(value) {
-  const thresholdKwh = Number(value)
-  return Number.isFinite(thresholdKwh) && thresholdKwh > 0 ? thresholdKwh : undefined
-}
-
-function getMaxThresholdKwh(configs) {
-  const thresholds = (configs || [])
-    .map((config) => normalizeThresholdKwh(config && config.thresholdKwh))
-    .filter((value) => value !== undefined)
-
-  return thresholds.length ? Math.max(...thresholds) : undefined
-}
-
 function calculateScheduleState(input) {
   const now = input.now || new Date()
   const meter = input.meter || {}
   const record = input.record
   const previousRecord = input.previousRecord
-  const thresholdKwh = normalizeThresholdKwh(input.thresholdKwh)
+  const thresholdKwh = DEFAULT_REMINDER_THRESHOLD_KWH
   const previousMode = meter.scheduleMode || 'normal'
   const previousEstimate = normalizeEstimatedDailyUsageKwh(meter.estimatedDailyUsageKwh)
   let estimatedDailyUsageKwh = previousEstimate
@@ -251,7 +239,7 @@ function calculateScheduleState(input) {
   let lastRechargeDetectedAt = meter.lastRechargeDetectedAt
   let lowPowerNotifiedAt = meter.lowPowerNotifiedAt
 
-  if (!record.ok || record.remainingKwh === undefined || thresholdKwh === undefined) {
+  if (!record.ok || record.remainingKwh === undefined) {
     return {
       estimatedDailyUsageKwh,
       scheduleMode,
@@ -521,7 +509,6 @@ async function updateMeter(db, meter, record, type, options) {
     meter,
     record,
     previousRecord: options && options.previousRecord,
-    thresholdKwh: options && options.thresholdKwh,
     now: record.queriedAt,
   })
   const data = {
@@ -597,7 +584,6 @@ async function sendPowerQueryNotification(input) {
 }
 
 function shouldSendEmailNotification(config, record, schedule) {
-  const thresholdKwh = Number(config && config.thresholdKwh)
   const email = normalizeEmail(config && config.email)
 
   if (!config || config.reminderEnabled !== true) {
@@ -608,15 +594,11 @@ function shouldSendEmailNotification(config, record, schedule) {
     return false
   }
 
-  if (!Number.isFinite(thresholdKwh) || thresholdKwh <= 0) {
-    return false
-  }
-
   if (!email || !isValidEmail(email)) {
     return false
   }
 
-  return record.remainingKwh <= thresholdKwh
+  return record.remainingKwh <= DEFAULT_REMINDER_THRESHOLD_KWH
 }
 
 async function hasSentNotificationInCurrentLowPowerCycle(db, input) {
@@ -661,7 +643,7 @@ async function sendEmailNotification(input) {
         meterId: input.record.meterId,
         type: input.type,
         remainingKwh: input.record.remainingKwh,
-        thresholdKwh: input.config.thresholdKwh,
+        thresholdKwh: DEFAULT_REMINDER_THRESHOLD_KWH,
         queriedAt: input.record.queriedAt,
         address: input.record.address || '',
         source: 'scheduledCheck',
@@ -712,7 +694,7 @@ async function notifyUsersForMeter(db, record, type, configs, schedule) {
         email: normalizeEmail(config.email),
         type,
         record,
-        thresholdKwh: config.thresholdKwh,
+        thresholdKwh: DEFAULT_REMINDER_THRESHOLD_KWH,
         result,
       })
 
@@ -750,7 +732,6 @@ async function processMeter(db, meter) {
   const record = await queryMeter(meter, type)
   const previousRecord = await getPreviousSuccessfulPowerRecord(db, record.meterId)
   const configs = await findBoundReminderConfigs(db, record.meterId, type)
-  const thresholdKwh = getMaxThresholdKwh(configs)
 
   await db.collection(COLLECTIONS.powerRecords).add({
     data: {
@@ -761,7 +742,6 @@ async function processMeter(db, meter) {
   })
   const schedule = await updateMeter(db, meter, record, type, {
     previousRecord,
-    thresholdKwh,
   })
 
   if (!record.ok || record.remainingKwh === undefined) {

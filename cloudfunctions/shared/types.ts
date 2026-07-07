@@ -81,7 +81,6 @@ export interface SaveConfigInput {
   lightMeterId: string
   acMeterId: string
   email: string
-  thresholdKwh: number
   reminderEnabled: boolean
   nextCheckAt?: Date | string
   checkIntervalMinutes?: number | string

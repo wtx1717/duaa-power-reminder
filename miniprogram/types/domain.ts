@@ -34,7 +34,6 @@ export interface SaveConfigPayload {
   lightMeterId: string
   acMeterId: string
   email: string
-  thresholdKwh: number
   reminderEnabled: boolean
   nextCheckAt?: string
   checkIntervalMinutes?: number
