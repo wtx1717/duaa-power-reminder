@@ -7,8 +7,14 @@ const {
   buildPlannedJobs,
   selectMetersToPlan,
 } = require('../cloudfunctions/shared/scheduledPlanner')
+const {
+  canDispatchScheduledJob,
+  canPlanScheduledCheck,
+} = require('../cloudfunctions/shared/workingHours')
 
 const PLAN_INTERVAL_MS = 30 * 60 * 1000
+const DISPATCH_INTERVAL_MS = 5 * 60 * 1000
+const MAX_JOBS_PER_DISPATCH = 10
 const CASES = [0, 1, 2, 50, 500, 1000]
 
 function makeMeters(count) {
@@ -29,10 +35,10 @@ function formatDuration(ms) {
   const restMinutes = minutes % 60
 
   if (!hours) {
-    return `${restMinutes} 分钟`
+    return `${restMinutes} min`
   }
 
-  return restMinutes ? `${hours} 小时 ${restMinutes} 分钟` : `${hours} 小时`
+  return restMinutes ? `${hours} h ${restMinutes} min` : `${hours} h`
 }
 
 function assertPlannedJobs(jobs, expectedCount, triggerTime) {
@@ -119,6 +125,38 @@ function testDuplicateAndExpiredActiveJobs() {
   assert.strictEqual(expiredCount, 2, 'expired pending/running jobs should be detected')
 }
 
+function testWorkingHours() {
+  const cases = [
+    ['2026-07-06T23:59:00.000Z', false, false, '07:59 Beijing'],
+    ['2026-07-07T00:00:00.000Z', true, true, '08:00 Beijing'],
+    ['2026-07-07T13:00:00.000Z', true, true, '21:00 Beijing'],
+    ['2026-07-07T13:30:00.000Z', false, true, '21:30 Beijing'],
+    ['2026-07-07T14:00:00.000Z', false, false, '22:00 Beijing'],
+  ]
+
+  for (const [iso, expectedPlan, expectedDispatch, label] of cases) {
+    const value = new Date(iso)
+
+    assert.strictEqual(canPlanScheduledCheck(value), expectedPlan, `plan working-hours mismatch: ${label}`)
+    assert.strictEqual(canDispatchScheduledJob(value), expectedDispatch, `dispatch working-hours mismatch: ${label}`)
+  }
+}
+
+function testDispatchCapacity() {
+  const triggerTime = new Date('2026-07-07T08:00:00.000Z')
+  const jobs = buildPlannedJobs(makeMeters(MAX_METERS_PER_PLAN), triggerTime)
+  const dispatchTicks = Math.ceil(PLAN_WINDOW_MS / DISPATCH_INTERVAL_MS)
+  const capacity = dispatchTicks * MAX_JOBS_PER_DISPATCH
+
+  assert(capacity >= jobs.length, '5min dispatch capacity should cover one planned batch')
+
+  return {
+    dispatchTicks,
+    capacity,
+    plannedJobs: jobs.length,
+  }
+}
+
 function simulateBacklog(totalMeters) {
   let remaining = totalMeters
   let rounds = 0
@@ -148,34 +186,42 @@ function printCaseResult(result) {
   const maxPlannedAt = result.maxPlannedAt ? result.maxPlannedAt.toISOString() : '-'
 
   console.log([
-    `规模=${result.totalMeters}`,
-    `本轮规划=${result.plannedThisRound}`,
-    `剩余积压=${result.remainingBacklog}`,
-    `plannedAt最小=${minPlannedAt}`,
-    `plannedAt最大=${maxPlannedAt}`,
+    `scale=${result.totalMeters}`,
+    `planned=${result.plannedThisRound}`,
+    `backlog=${result.remainingBacklog}`,
+    `minPlannedAt=${minPlannedAt}`,
+    `maxPlannedAt=${maxPlannedAt}`,
   ].join(' | '))
 }
 
 function main() {
-  console.log('随机错峰调度本地仿真测试')
-  console.log(`规划上限=${MAX_METERS_PER_PLAN} | 随机窗口=${formatDuration(PLAN_WINDOW_MS)} | 截止时间=${formatDuration(PLAN_DEADLINE_MS)}`)
+  console.log('scheduled random planning simulation')
+  console.log(`planLimit=${MAX_METERS_PER_PLAN} | randomWindow=${formatDuration(PLAN_WINDOW_MS)} | deadline=${formatDuration(PLAN_DEADLINE_MS)}`)
 
   for (const count of CASES) {
     printCaseResult(testSinglePlanningCase(count))
   }
 
   testDuplicateAndExpiredActiveJobs()
+  testWorkingHours()
+
+  const dispatchCapacity = testDispatchCapacity()
+  console.log([
+    `dispatchTicks=${dispatchCapacity.dispatchTicks}`,
+    `dispatchCapacity=${dispatchCapacity.capacity}`,
+    `plannedJobs=${dispatchCapacity.plannedJobs}`,
+  ].join(' | '))
 
   for (const count of [50, 500, 1000]) {
     const result = simulateBacklog(count)
     console.log([
-      `积压规模=${result.totalMeters}`,
-      `需要规划轮次=${result.rounds}`,
-      `理论消化时间<=${formatDuration(result.estimatedDrainTimeMs)}`,
+      `backlogScale=${result.totalMeters}`,
+      `planningRounds=${result.rounds}`,
+      `estimatedDrainTime<=${formatDuration(result.estimatedDrainTimeMs)}`,
     ].join(' | '))
   }
 
-  console.log('OK: 本地仿真测试通过，未发现越界、重复规划或容量计算异常。')
+  console.log('OK: simulation passed.')
 }
 
 main()

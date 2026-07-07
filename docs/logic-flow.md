@@ -28,7 +28,7 @@ flowchart TD
   R["每 30 分钟触发 scheduledCheck"] --> S["获取 job_locks 防并发锁"]
   S --> T["读取最多 50 个 nextCheckAt 到期的 meters"]
   T --> U["在 25 分钟窗口内随机生成 meter_check_jobs"]
-  U --> V["每 1 分钟触发 scheduledCheckDispatch 执行到点任务"]
+  U --> V["每 5 分钟触发 scheduledCheckDispatch 直接执行到点任务"]
   V --> W["写入 power_records 并更新 meters"]
   W --> X1["查找绑定该电表且 reminderEnabled=true 的用户"]
   X1 --> X{"逐个用户判断 remainingKwh <= 20 且邮箱有效?"}
@@ -50,6 +50,7 @@ flowchart TD
 - `queryPower` 写入 `source=queryPower` 的历史记录，但不更新 `nextCheckAt`、`scheduleMode` 或 `estimatedDailyUsageKwh`。
 - 邮件中的查询时间按 `MAIL_TIME_ZONE` 环境变量格式化，未配置时默认使用 `Asia/Shanghai`。
 - `notification_records.channel` 当前写入 `email`。
+- 后台定时任务只在北京时间 `08:00-22:00` 工作，手动查询不受限制。
 
 ## 需要重新上传的云函数
 

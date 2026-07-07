@@ -136,7 +136,7 @@
 
 ## meter_check_jobs
 
-用途：保存定时检查的随机错峰执行计划。`scheduledCheck` 每 30 分钟只负责规划任务，`scheduledCheckDispatch` 每 1 分钟执行到点任务；`meters.nextCheckAt` 仍只在实际检查完成后更新。
+用途：保存定时检查的随机错峰执行计划。`scheduledCheck` 每 30 分钟只负责规划任务，`scheduledCheckDispatch` 在工作时段每 5 分钟执行到点任务；`meters.nextCheckAt` 仍只在实际检查完成后更新。
 
 字段：
 

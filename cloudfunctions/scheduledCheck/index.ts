@@ -2,6 +2,8 @@ export interface ScheduledCheckResult {
   ok: boolean
   locked?: boolean
   lockDisabled?: boolean
+  skipped?: boolean
+  reason?: string
   checkedMeters: number
   dueMeters?: number
   plannedMeters?: number

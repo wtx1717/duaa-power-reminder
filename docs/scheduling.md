@@ -8,7 +8,7 @@
 - 手动查询写入 `power_records` 时标记 `source: 'queryPower'`，不参与日耗估算。
 - 手动查询只更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`failCount`、`lastError` 和 `updatedAt`。
 - 手动查询不更新 `estimatedDailyUsageKwh`、`nextCheckAt`、`scheduleMode`、`lastRechargeDetectedAt` 和 `lowPowerNotifiedAt`。
-- `scheduledCheck` 是后台采样规划入口；实际到点检查由 `scheduledCheckDispatch` 分发后调用 `scheduledCheck` 的单任务执行入口完成。只有实际后台采样会更新调度字段、充值检测和低电量周期状态。
+- `scheduledCheck` 是后台采样规划入口；实际到点检查由 `scheduledCheckDispatch` 分发并直接调用共享执行模块完成。只有实际后台采样会更新调度字段、充值检测和低电量周期状态。
 
 ## meters 新增字段
 
@@ -21,8 +21,9 @@
 
 ## 调度规则
 
-- `saveConfig` 新建电表时设置 `nextCheckAt = new Date()`，由每 30 分钟触发的 `scheduledCheck` 纳入规划，再由每 1 分钟触发的 `scheduledCheckDispatch` 在随机分配的时间执行首次后台采样。
+- `saveConfig` 新建电表时设置 `nextCheckAt = new Date()`，由每 30 分钟触发的 `scheduledCheck` 纳入规划，再由每 5 分钟触发的 `scheduledCheckDispatch` 在随机分配的时间执行首次后台采样。
 - 每轮规划最多纳入 50 个到期电表，实际执行时间随机分布在触发后的 25 分钟内，保留 5 分钟余量；超过 50 个的到期电表保留原 `nextCheckAt`，由后续规划轮次继续处理。
+- 后台定时任务只在北京时间 `08:00-22:00` 工作；`scheduledCheck` 最后一轮规划为 `21:00`，`scheduledCheckDispatch` 最晚收尾分发到 `21:30`。用户手动查询不受限制。
 - 每次后台成功查询后，使用后端固定提醒阈值 `20` kWh 计算调度时间。
 - 当 `remainingKwh <= 20` 时进入 `notified`，下次查询为 1 天后。
 - 当 `remainingKwh - 20 <= 5` 时进入 `near_threshold`，下次查询为 1 天后。

@@ -1,9 +1,14 @@
 {
   "triggers": [
     {
-      "name": "scheduledCheckEveryThirtyMinutes",
+      "name": "scheduledCheckEveryThirtyMinutesWorkday",
       "type": "timer",
-      "config": "0 */30 * * * * *"
+      "config": "0 */30 8-20 * * * *"
+    },
+    {
+      "name": "scheduledCheckLastPlanAtNight",
+      "type": "timer",
+      "config": "0 0 21 * * * *"
     }
   ]
 }

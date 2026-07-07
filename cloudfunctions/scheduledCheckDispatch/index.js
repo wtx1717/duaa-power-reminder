@@ -1,32 +1,17 @@
 const cloud = require('wx-server-sdk')
+const { executePlannedJob, asDate } = require('../shared/scheduledExecutor')
+const { canDispatchScheduledJob } = require('../shared/workingHours')
+const { ACTIVE_JOB_STATUSES } = require('../shared/scheduledPlanner')
 
 const COLLECTIONS = {
   meterCheckJobs: 'meter_check_jobs',
 }
 
-const MAX_JOBS_PER_DISPATCH = 5
-const ACTIVE_JOB_STATUSES = ['pending', 'running']
+const MAX_JOBS_PER_DISPATCH = 10
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
 })
-
-function asDate(value) {
-  if (!value) {
-    return undefined
-  }
-
-  if (value instanceof Date) {
-    return value
-  }
-
-  if (typeof value === 'object' && typeof value.toDate === 'function') {
-    return value.toDate()
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? undefined : date
-}
 
 function isCollectionNotFoundError(error) {
   const message = error instanceof Error ? error.message : String(error)
@@ -101,21 +86,6 @@ async function markExpired(db, job) {
   })
 }
 
-async function executeJob(jobId) {
-  const response = await cloud.callFunction({
-    name: 'scheduledCheck',
-    data: {
-      action: 'executeJob',
-      jobId,
-    },
-  })
-
-  return response && response.result ? response.result : {
-    status: 'failed',
-    error: 'Empty scheduledCheck response',
-  }
-}
-
 exports.main = async () => {
   const db = cloud.database()
   const result = {
@@ -128,11 +98,26 @@ exports.main = async () => {
     skippedNotifications: 0,
     errors: [],
   }
+
+  if (!canDispatchScheduledJob(new Date())) {
+    return {
+      ...result,
+      skipped: true,
+      reason: 'outside_working_hours',
+    }
+  }
+
   result.expiredJobs += await expireStaleJobs(db)
   const jobs = await getDueJobs(db)
   const now = new Date()
 
   for (const job of jobs.data) {
+    if (!canDispatchScheduledJob(new Date())) {
+      result.skipped = true
+      result.reason = 'outside_working_hours'
+      break
+    }
+
     const deadlineAt = asDate(job.deadlineAt)
 
     if (deadlineAt && deadlineAt < now) {
@@ -151,7 +136,7 @@ exports.main = async () => {
     }
 
     try {
-      const jobResult = await executeJob(job._id)
+      const jobResult = await executePlannedJob(db, job._id)
 
       if (jobResult.status === 'done') {
         result.checkedMeters += jobResult.checkedMeters || 0

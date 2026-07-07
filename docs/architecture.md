@@ -51,11 +51,13 @@ docs/                 架构和数据库文档
 2. 每 30 分钟从 `meters` 查询最多 50 个 `nextCheckAt <= now` 的电表。
 3. 跳过已经存在 `pending` 或 `running` 检查任务的电表。
 4. 在触发后 25 分钟窗口内按分桶随机生成 `meter_check_jobs.plannedAt`，并设置 30 分钟截止时间。
-5. `scheduledCheckDispatch` 每 1 分钟读取 `plannedAt <= now` 的待执行任务，过期任务标记为 `expired`。
-6. 到点任务通过 `scheduledCheck` 的单任务执行入口调用电量查询模块，写入 `source=scheduledCheck` 的 `power_records`。
+5. `scheduledCheckDispatch` 在工作时段每 5 分钟读取 `plannedAt <= now` 的待执行任务，过期任务标记为 `expired`。
+6. 到点任务由 `scheduledCheckDispatch` 直接调用共享执行模块完成电量查询，写入 `source=scheduledCheck` 的 `power_records`。
 7. 实际检查完成后更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`nextCheckAt`、`estimatedDailyUsageKwh`、`scheduleMode`、`failCount` 和 `lastError`。
 8. 找到绑定该电表且开启提醒的 `user_configs`；当剩余电量小于等于后端固定阈值 20 kWh 时，调用邮件提醒云函数并写入 `notification_records`。
 9. 释放或更新任务锁。
+
+后台定时任务只在北京时间 `08:00-22:00` 工作。`scheduledCheck` 最后一轮规划为 `21:00`，`scheduledCheckDispatch` 最晚收尾分发到 `21:30`；用户手动查询不受这个时间窗口限制。
 
 ## 按唯一电表号去重的原因
 
