@@ -77,6 +77,25 @@ export interface JobLock {
   updatedAt: Date
 }
 
+export type MeterCheckJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'expired'
+
+export interface MeterCheckJob {
+  _id?: string
+  meterDocId?: string
+  meterId: string
+  type: MeterType
+  status: MeterCheckJobStatus
+  runId: string
+  plannedAt: Date
+  deadlineAt: Date
+  attempts?: number
+  error?: string
+  createdAt: Date
+  updatedAt: Date
+  startedAt?: Date
+  finishedAt?: Date
+}
+
 export interface SaveConfigInput {
   lightMeterId: string
   acMeterId: string

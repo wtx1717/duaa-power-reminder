@@ -76,6 +76,9 @@ export interface ScheduledCheckResult {
   locked?: boolean
   lockDisabled?: boolean
   checkedMeters: number
+  dueMeters?: number
+  plannedMeters?: number
+  skippedActiveJobs?: number
   sentNotifications: number
   failedNotifications?: number
   skippedNotifications?: number

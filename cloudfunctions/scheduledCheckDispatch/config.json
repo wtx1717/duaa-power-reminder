@@ -1,0 +1,9 @@
+{
+  "triggers": [
+    {
+      "name": "scheduledCheckDispatchEveryMinute",
+      "type": "timer",
+      "config": "0 */1 * * * * *"
+    }
+  ]
+}

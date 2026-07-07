@@ -8,13 +8,14 @@ const COLLECTIONS = {
   powerRecords: 'power_records',
   notificationRecords: 'notification_records',
   jobLocks: 'job_locks',
+  meterCheckJobs: 'meter_check_jobs',
 }
 
 const DEFAULT_POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const XYL_AC_POWER_BASE_URL = 'https://xylktsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
-const MAX_METERS_PER_RUN = 20
+const MAX_METERS_PER_PLAN = 50
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const MIN_CHECK_INTERVAL_MINUTES = 1
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
@@ -27,6 +28,9 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 1
 const LOCK_NAME = 'scheduledCheck'
 const LOCK_TTL_MS = 10 * 60 * 1000
+const PLAN_WINDOW_MS = 25 * 60 * 1000
+const PLAN_DEADLINE_MS = 30 * 60 * 1000
+const ACTIVE_JOB_STATUSES = ['pending', 'running']
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -339,7 +343,21 @@ function isValidEmail(email) {
 
 function isCollectionNotFoundError(error) {
   const message = error instanceof Error ? error.message : String(error)
-  return /DATABASE_COLLECTION_NOT_EXIST|collection not exists|Db or Table not exist|job_locks/i.test(message)
+  return /DATABASE_COLLECTION_NOT_EXIST|collection not exists|Db or Table not exist|job_locks|meter_check_jobs/i.test(message)
+}
+
+async function ensureCollection(db, collectionName) {
+  if (typeof db.createCollection !== 'function') {
+    return
+  }
+
+  try {
+    await db.createCollection(collectionName)
+  } catch (error) {
+    if (!/already exists|collection exists/i.test(error instanceof Error ? error.message : String(error))) {
+      throw error
+    }
+  }
 }
 
 async function acquireJobLock(db) {
@@ -454,8 +472,175 @@ async function getDueMeters(db) {
       nextCheckAt: _.lte(now),
     })
     .orderBy('nextCheckAt', 'asc')
-    .limit(MAX_METERS_PER_RUN)
+    .limit(MAX_METERS_PER_PLAN)
     .get()
+}
+
+async function getActiveJobsByMeterId(db, meterIds) {
+  if (!meterIds.length) {
+    return new Map()
+  }
+
+  const _ = db.command
+  const now = new Date()
+
+  try {
+    const jobs = []
+
+    for (const status of ACTIVE_JOB_STATUSES) {
+      const result = await db.collection(COLLECTIONS.meterCheckJobs)
+        .where({
+          meterId: _.in(meterIds),
+          status,
+        })
+        .limit(MAX_METERS_PER_PLAN)
+        .get()
+
+      jobs.push(...result.data)
+    }
+
+    return new Map(jobs
+      .filter((job) => {
+        const deadlineAt = asDate(job.deadlineAt)
+        return !deadlineAt || deadlineAt >= now
+      })
+      .map((job) => [job.meterId, job]))
+  } catch (error) {
+    if (isCollectionNotFoundError(error)) {
+      await ensureCollection(db, COLLECTIONS.meterCheckJobs)
+      return new Map()
+    }
+
+    throw error
+  }
+}
+
+async function expireStaleJobs(db) {
+  const _ = db.command
+
+  try {
+    let updated = 0
+
+    for (const status of ACTIVE_JOB_STATUSES) {
+      const result = await db.collection(COLLECTIONS.meterCheckJobs)
+        .where({
+          status,
+          deadlineAt: _.lt(new Date()),
+        })
+        .update({
+          data: {
+            status: 'expired',
+            error: 'Job expired before completion',
+            finishedAt: db.serverDate(),
+            updatedAt: db.serverDate(),
+          },
+        })
+
+      updated += result && result.stats && result.stats.updated ? result.stats.updated : 0
+    }
+
+    return updated
+  } catch (error) {
+    if (isCollectionNotFoundError(error)) {
+      await ensureCollection(db, COLLECTIONS.meterCheckJobs)
+      return 0
+    }
+
+    throw error
+  }
+}
+
+function shuffleMeters(meters) {
+  const shuffled = meters.slice()
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    const current = shuffled[index]
+    shuffled[index] = shuffled[swapIndex]
+    shuffled[swapIndex] = current
+  }
+
+  return shuffled
+}
+
+function buildPlannedJobs(meters, now) {
+  if (!meters.length) {
+    return []
+  }
+
+  const runId = `${LOCK_NAME}-${now.getTime()}-${Math.random().toString(16).slice(2)}`
+  const bucketSize = PLAN_WINDOW_MS / meters.length
+  const deadlineAt = new Date(now.getTime() + PLAN_DEADLINE_MS)
+
+  return shuffleMeters(meters).map((meter, index) => {
+    const bucketStart = Math.floor(index * bucketSize)
+    const bucketEnd = Math.floor((index + 1) * bucketSize)
+    const bucketWidth = Math.max(1, bucketEnd - bucketStart)
+    const plannedOffset = bucketStart + Math.floor(Math.random() * bucketWidth)
+
+    return {
+      meter,
+      data: {
+        meterDocId: meter._id || '',
+        meterId: String(meter.meterId || '').trim(),
+        type: getMeterType(meter),
+        status: 'pending',
+        runId,
+        plannedAt: new Date(now.getTime() + plannedOffset),
+        deadlineAt,
+        attempts: 0,
+      },
+    }
+  })
+}
+
+function selectMetersToPlan(dueMeters, activeJobs) {
+  return dueMeters.filter((meter) => {
+    const meterId = String(meter.meterId || '').trim()
+    return meterId && !activeJobs.has(meterId)
+  })
+}
+
+async function addMeterCheckJob(db, job) {
+  const now = db.serverDate()
+  const data = {
+    ...job.data,
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  try {
+    await db.collection(COLLECTIONS.meterCheckJobs).add({ data })
+  } catch (error) {
+    if (!isCollectionNotFoundError(error)) {
+      throw error
+    }
+
+    await ensureCollection(db, COLLECTIONS.meterCheckJobs)
+    await db.collection(COLLECTIONS.meterCheckJobs).add({ data })
+  }
+}
+
+async function planDueMeterChecks(db) {
+  const now = new Date()
+  await expireStaleJobs(db)
+  const dueMeters = await getDueMeters(db)
+  const meterIds = dueMeters.data
+    .map((meter) => String(meter.meterId || '').trim())
+    .filter(Boolean)
+  const activeJobs = await getActiveJobsByMeterId(db, meterIds)
+  const metersToPlan = selectMetersToPlan(dueMeters.data, activeJobs)
+  const jobs = buildPlannedJobs(metersToPlan, now)
+
+  for (const job of jobs) {
+    await addMeterCheckJob(db, job)
+  }
+
+  return {
+    plannedMeters: jobs.length,
+    dueMeters: dueMeters.data.length,
+    skippedActiveJobs: dueMeters.data.length - metersToPlan.length,
+  }
 }
 
 async function queryMeter(meter, type) {
@@ -755,8 +940,186 @@ async function processMeter(db, meter) {
   return notifyUsersForMeter(db, record, type, configs, schedule)
 }
 
-exports.main = async () => {
+async function getMeterForJob(db, job) {
+  if (job.meterDocId) {
+    const result = await db.collection(COLLECTIONS.meters).doc(job.meterDocId).get()
+    return result.data
+  }
+
+  const result = await db.collection(COLLECTIONS.meters)
+    .where({
+      meterId: job.meterId,
+      type: job.type,
+    })
+    .limit(1)
+    .get()
+
+  return result.data[0]
+}
+
+async function updateJobStatus(db, jobId, data) {
+  await db.collection(COLLECTIONS.meterCheckJobs).doc(jobId).update({
+    data: {
+      ...data,
+      updatedAt: db.serverDate(),
+    },
+  })
+}
+
+async function markJobExpired(db, job) {
+  await updateJobStatus(db, job._id, {
+    status: 'expired',
+    finishedAt: db.serverDate(),
+    error: 'Job expired before dispatch',
+  })
+}
+
+async function claimJob(db, job) {
+  const _ = db.command
+  const now = new Date()
+  const plannedAt = asDate(job.plannedAt)
+  const deadlineAt = asDate(job.deadlineAt)
+
+  if (plannedAt && plannedAt > now) {
+    return {
+      claimed: false,
+      status: 'pending',
+      reason: 'Job is not due yet',
+    }
+  }
+
+  if (deadlineAt && deadlineAt < now) {
+    await markJobExpired(db, job)
+    return {
+      claimed: false,
+      status: 'expired',
+      reason: 'Job expired before dispatch',
+    }
+  }
+
+  const result = await db.collection(COLLECTIONS.meterCheckJobs)
+    .where({
+      _id: job._id,
+      status: 'pending',
+    })
+    .update({
+      data: {
+        status: 'running',
+        attempts: _.inc(1),
+        startedAt: db.serverDate(),
+        updatedAt: db.serverDate(),
+      },
+    })
+
+  const updated = result && result.stats && result.stats.updated
+
+  return {
+    claimed: updated > 0,
+    status: updated > 0 ? 'running' : 'skipped',
+    reason: updated > 0 ? '' : 'Job was already claimed',
+  }
+}
+
+async function executePlannedJob(db, jobId) {
+  if (!jobId) {
+    return {
+      checkedMeters: 0,
+      sentNotifications: 0,
+      failedNotifications: 0,
+      skippedNotifications: 0,
+      status: 'failed',
+      error: 'Missing jobId',
+    }
+  }
+
+  let job
+
+  try {
+    const result = await db.collection(COLLECTIONS.meterCheckJobs).doc(jobId).get()
+    job = result.data
+  } catch (error) {
+    return {
+      checkedMeters: 0,
+      sentNotifications: 0,
+      failedNotifications: 0,
+      skippedNotifications: 0,
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+
+  if (!job || job.status !== 'pending') {
+    return {
+      checkedMeters: 0,
+      sentNotifications: 0,
+      failedNotifications: 0,
+      skippedNotifications: 0,
+      status: job && job.status ? job.status : 'missing',
+    }
+  }
+
+  const claim = await claimJob(db, job)
+
+  if (!claim.claimed) {
+    return {
+      checkedMeters: 0,
+      sentNotifications: 0,
+      failedNotifications: 0,
+      skippedNotifications: 0,
+      status: claim.status,
+      error: claim.reason,
+    }
+  }
+
+  try {
+    const meter = await getMeterForJob(db, job)
+
+    if (!meter) {
+      throw new Error('Meter not found for planned job')
+    }
+
+    const meterResult = await processMeter(db, meter)
+
+    await updateJobStatus(db, job._id, {
+      status: 'done',
+      finishedAt: db.serverDate(),
+      error: '',
+    })
+
+    return {
+      checkedMeters: 1,
+      sentNotifications: meterResult.sentNotifications,
+      failedNotifications: meterResult.failedNotifications,
+      skippedNotifications: meterResult.skippedNotifications,
+      status: 'done',
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    await updateJobStatus(db, job._id, {
+      status: 'failed',
+      finishedAt: db.serverDate(),
+      error: message,
+    })
+
+    return {
+      checkedMeters: 0,
+      sentNotifications: 0,
+      failedNotifications: 0,
+      skippedNotifications: 0,
+      status: 'failed',
+      error: message,
+    }
+  }
+}
+
+exports.main = async (event = {}) => {
   const db = cloud.database()
+
+  if (event && event.action === 'executeJob') {
+    return executePlannedJob(db, event.jobId)
+  }
+
   const lock = await acquireJobLock(db)
 
   if (!lock.acquired) {
@@ -764,6 +1127,8 @@ exports.main = async () => {
       ok: true,
       locked: true,
       checkedMeters: 0,
+      plannedMeters: 0,
+      skippedActiveJobs: 0,
       sentNotifications: 0,
       failedNotifications: 0,
       skippedNotifications: 0,
@@ -776,6 +1141,8 @@ exports.main = async () => {
     locked: false,
     lockDisabled: Boolean(lock.lockDisabled),
     checkedMeters: 0,
+    plannedMeters: 0,
+    skippedActiveJobs: 0,
     sentNotifications: 0,
     failedNotifications: 0,
     skippedNotifications: 0,
@@ -783,25 +1150,22 @@ exports.main = async () => {
   }
 
   try {
-    const dueMeters = await getDueMeters(db)
-
-    for (const meter of dueMeters.data) {
-      try {
-        const meterResult = await processMeter(db, meter)
-        result.checkedMeters += 1
-        result.sentNotifications += meterResult.sentNotifications
-        result.failedNotifications += meterResult.failedNotifications
-        result.skippedNotifications += meterResult.skippedNotifications
-      } catch (error) {
-        result.errors.push({
-          meterId: meter && meter.meterId,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
+    const planResult = await planDueMeterChecks(db)
+    result.plannedMeters = planResult.plannedMeters
+    result.dueMeters = planResult.dueMeters
+    result.skippedActiveJobs = planResult.skippedActiveJobs
   } finally {
     await releaseJobLock(db, lock)
   }
 
   return result
+}
+
+exports.__test__ = {
+  ACTIVE_JOB_STATUSES,
+  MAX_METERS_PER_PLAN,
+  PLAN_DEADLINE_MS,
+  PLAN_WINDOW_MS,
+  buildPlannedJobs,
+  selectMetersToPlan,
 }

@@ -25,12 +25,13 @@ flowchart TD
   N1 --> P1["更新 meters 展示字段并返回查询结果"]
   N2 --> P2["更新 meters 展示字段并返回查询结果"]
 
-  R["定时触发 scheduledCheck"] --> S["获取 job_locks 防并发锁"]
-  S --> T["读取 nextCheckAt 到期的 meters"]
-  T --> U["按电表去重查询学校电量页面"]
-  U --> V["写入 power_records 并更新 meters"]
-  V --> W["查找绑定该电表且 reminderEnabled=true 的用户"]
-  W --> X{"逐个用户判断 remainingKwh <= 20 且邮箱有效?"}
+  R["每 30 分钟触发 scheduledCheck"] --> S["获取 job_locks 防并发锁"]
+  S --> T["读取最多 50 个 nextCheckAt 到期的 meters"]
+  T --> U["在 25 分钟窗口内随机生成 meter_check_jobs"]
+  U --> V["每 1 分钟触发 scheduledCheckDispatch 执行到点任务"]
+  V --> W["写入 power_records 并更新 meters"]
+  W --> X1["查找绑定该电表且 reminderEnabled=true 的用户"]
+  X1 --> X{"逐个用户判断 remainingKwh <= 20 且邮箱有效?"}
   X -- "否" --> Y["不发送提醒"]
   X -- "是" --> Q
 

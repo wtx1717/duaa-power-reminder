@@ -1,9 +1,9 @@
 {
   "triggers": [
     {
-      "name": "scheduledCheckEveryMinute",
+      "name": "scheduledCheckEveryThirtyMinutes",
       "type": "timer",
-      "config": "0 */2 * * * * *"
+      "config": "0 */30 * * * * *"
     }
   ]
 }

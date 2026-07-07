@@ -48,12 +48,14 @@ docs/                 架构和数据库文档
 ## scheduledCheck 执行流程
 
 1. 获取 `job_locks` 中的 `scheduledCheck` 锁，避免多个任务实例同时运行。
-2. 从 `meters` 查询 `nextCheckAt <= now` 的电表。
-3. 对每个到期电表调用电量查询模块，解析并写入 `source=scheduledCheck` 的 `power_records`。
-4. 更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`nextCheckAt`、`estimatedDailyUsageKwh`、`scheduleMode`、`failCount` 和 `lastError`。
-5. 找到绑定该电表且开启提醒的 `user_configs`。
-6. 当剩余电量小于等于后端固定阈值 20 kWh 时，调用邮件提醒云函数并写入 `notification_records`。
-7. 释放或更新任务锁。
+2. 每 30 分钟从 `meters` 查询最多 50 个 `nextCheckAt <= now` 的电表。
+3. 跳过已经存在 `pending` 或 `running` 检查任务的电表。
+4. 在触发后 25 分钟窗口内按分桶随机生成 `meter_check_jobs.plannedAt`，并设置 30 分钟截止时间。
+5. `scheduledCheckDispatch` 每 1 分钟读取 `plannedAt <= now` 的待执行任务，过期任务标记为 `expired`。
+6. 到点任务通过 `scheduledCheck` 的单任务执行入口调用电量查询模块，写入 `source=scheduledCheck` 的 `power_records`。
+7. 实际检查完成后更新 `meters.lastRemainingKwh`、`lastQueriedAt`、`nextCheckAt`、`estimatedDailyUsageKwh`、`scheduleMode`、`failCount` 和 `lastError`。
+8. 找到绑定该电表且开启提醒的 `user_configs`；当剩余电量小于等于后端固定阈值 20 kWh 时，调用邮件提醒云函数并写入 `notification_records`。
+9. 释放或更新任务锁。
 
 ## 按唯一电表号去重的原因
 

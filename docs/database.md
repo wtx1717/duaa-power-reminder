@@ -133,3 +133,34 @@
 | --- | --- | --- |
 | `name` | 唯一索引 | 同一种任务只能持有一把锁 |
 | `lockedUntil` | 普通索引 | 清理过期锁或判断锁是否可抢占 |
+
+## meter_check_jobs
+
+用途：保存定时检查的随机错峰执行计划。`scheduledCheck` 每 30 分钟只负责规划任务，`scheduledCheckDispatch` 每 1 分钟执行到点任务；`meters.nextCheckAt` 仍只在实际检查完成后更新。
+
+字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `_id` | string | 是 | 云数据库文档 ID |
+| `meterDocId` | string | 否 | 对应 `meters` 文档 ID |
+| `meterId` | string | 是 | 电表号 |
+| `type` | string | 是 | 电表类型：`light` 或 `ac` |
+| `status` | string | 是 | 状态：`pending`、`running`、`done`、`failed`、`expired` |
+| `runId` | string | 是 | 本轮规划实例标识 |
+| `plannedAt` | Date | 是 | 随机分配后的实际执行时间 |
+| `deadlineAt` | Date | 是 | 本轮执行截止时间，当前为规划触发后 30 分钟 |
+| `attempts` | number | 否 | 抢占执行次数 |
+| `error` | string | 否 | 失败或过期原因 |
+| `createdAt` | Date | 是 | 任务创建时间 |
+| `updatedAt` | Date | 是 | 更新时间 |
+| `startedAt` | Date | 否 | 实际开始执行时间 |
+| `finishedAt` | Date | 否 | 实际结束时间 |
+
+索引建议：
+
+| 索引字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `status, plannedAt` | 复合索引 | 分发器读取到点待执行任务 |
+| `meterId, status` | 复合索引 | 规划阶段跳过已有未完成任务 |
+| `deadlineAt` | 普通索引 | 清理过期任务 |

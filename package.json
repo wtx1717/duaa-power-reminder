@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
+    "test:scheduled-plan": "node scripts/test-scheduled-random-plan.js"
   },
   "keywords": [],
   "author": "",
