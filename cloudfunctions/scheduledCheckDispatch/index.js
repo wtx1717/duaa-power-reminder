@@ -1,7 +1,7 @@
 const cloud = require('wx-server-sdk')
-const { executePlannedJob, asDate } = require('../shared/scheduledExecutor')
-const { canDispatchScheduledJob } = require('../shared/workingHours')
-const { ACTIVE_JOB_STATUSES } = require('../shared/scheduledPlanner')
+const { executePlannedJob, asDate } = require('./shared/scheduledExecutor')
+const { canDispatchScheduledJob } = require('./shared/workingHours')
+const { ACTIVE_JOB_STATUSES } = require('./shared/scheduledPlanner')
 
 const COLLECTIONS = {
   meterCheckJobs: 'meter_check_jobs',

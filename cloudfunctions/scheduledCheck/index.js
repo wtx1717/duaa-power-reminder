@@ -4,12 +4,12 @@ const {
   MAX_METERS_PER_PLAN,
   buildPlannedJobs,
   selectMetersToPlan,
-} = require('../shared/scheduledPlanner')
-const { executePlannedJob } = require('../shared/scheduledExecutor')
+} = require('./shared/scheduledPlanner')
+const { executePlannedJob } = require('./shared/scheduledExecutor')
 const {
   canDispatchScheduledJob,
   canPlanScheduledCheck,
-} = require('../shared/workingHours')
+} = require('./shared/workingHours')
 
 const COLLECTIONS = {
   meters: 'meters',
