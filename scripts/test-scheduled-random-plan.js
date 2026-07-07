@@ -1,19 +1,4 @@
 const assert = require('assert')
-const Module = require('module')
-
-const originalRequire = Module.prototype.require
-
-Module.prototype.require = function patchedRequire(name) {
-  if (name === 'wx-server-sdk') {
-    return {
-      DYNAMIC_CURRENT_ENV: 'test',
-      init() {},
-    }
-  }
-
-  return originalRequire.apply(this, arguments)
-}
-
 const {
   ACTIVE_JOB_STATUSES,
   MAX_METERS_PER_PLAN,
@@ -21,9 +6,7 @@ const {
   PLAN_WINDOW_MS,
   buildPlannedJobs,
   selectMetersToPlan,
-} = require('../cloudfunctions/scheduledCheck/index.js').__test__
-
-Module.prototype.require = originalRequire
+} = require('../cloudfunctions/shared/scheduledPlanner')
 
 const PLAN_INTERVAL_MS = 30 * 60 * 1000
 const CASES = [0, 1, 2, 50, 500, 1000]

@@ -1,6 +1,12 @@
 const cloud = require('wx-server-sdk')
 const https = require('https')
 const { URL } = require('url')
+const {
+  ACTIVE_JOB_STATUSES,
+  MAX_METERS_PER_PLAN,
+  buildPlannedJobs,
+  selectMetersToPlan,
+} = require('../shared/scheduledPlanner')
 
 const COLLECTIONS = {
   userConfigs: 'user_configs',
@@ -15,7 +21,6 @@ const DEFAULT_POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const XYL_AC_POWER_BASE_URL = 'https://xylktsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 15000
 const LOW_POWER_TEMPLATE_ID = '6PcRlFLgfDTAFnepb7jfsj1K-w7jG6oZsqbyXZMgdp4'
-const MAX_METERS_PER_PLAN = 50
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const MIN_CHECK_INTERVAL_MINUTES = 1
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
@@ -28,9 +33,6 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 1
 const LOCK_NAME = 'scheduledCheck'
 const LOCK_TTL_MS = 10 * 60 * 1000
-const PLAN_WINDOW_MS = 25 * 60 * 1000
-const PLAN_DEADLINE_MS = 30 * 60 * 1000
-const ACTIVE_JOB_STATUSES = ['pending', 'running']
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -548,57 +550,6 @@ async function expireStaleJobs(db) {
 
     throw error
   }
-}
-
-function shuffleMeters(meters) {
-  const shuffled = meters.slice()
-
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    const current = shuffled[index]
-    shuffled[index] = shuffled[swapIndex]
-    shuffled[swapIndex] = current
-  }
-
-  return shuffled
-}
-
-function buildPlannedJobs(meters, now) {
-  if (!meters.length) {
-    return []
-  }
-
-  const runId = `${LOCK_NAME}-${now.getTime()}-${Math.random().toString(16).slice(2)}`
-  const bucketSize = PLAN_WINDOW_MS / meters.length
-  const deadlineAt = new Date(now.getTime() + PLAN_DEADLINE_MS)
-
-  return shuffleMeters(meters).map((meter, index) => {
-    const bucketStart = Math.floor(index * bucketSize)
-    const bucketEnd = Math.floor((index + 1) * bucketSize)
-    const bucketWidth = Math.max(1, bucketEnd - bucketStart)
-    const plannedOffset = bucketStart + Math.floor(Math.random() * bucketWidth)
-
-    return {
-      meter,
-      data: {
-        meterDocId: meter._id || '',
-        meterId: String(meter.meterId || '').trim(),
-        type: getMeterType(meter),
-        status: 'pending',
-        runId,
-        plannedAt: new Date(now.getTime() + plannedOffset),
-        deadlineAt,
-        attempts: 0,
-      },
-    }
-  })
-}
-
-function selectMetersToPlan(dueMeters, activeJobs) {
-  return dueMeters.filter((meter) => {
-    const meterId = String(meter.meterId || '').trim()
-    return meterId && !activeJobs.has(meterId)
-  })
 }
 
 async function addMeterCheckJob(db, job) {
@@ -1159,13 +1110,4 @@ exports.main = async (event = {}) => {
   }
 
   return result
-}
-
-exports.__test__ = {
-  ACTIVE_JOB_STATUSES,
-  MAX_METERS_PER_PLAN,
-  PLAN_DEADLINE_MS,
-  PLAN_WINDOW_MS,
-  buildPlannedJobs,
-  selectMetersToPlan,
 }
