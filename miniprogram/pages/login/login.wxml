@@ -1,0 +1,43 @@
+<view class="page">
+  <view class="brand">
+    <image class="logo" src="/assets/login-logo.jpg" mode="aspectFit" aria-role="img" aria-label="项目 Logo" />
+    <text class="app-name">duaa 宿舍电量提醒</text>
+  </view>
+
+  <view class="actions">
+    <button
+      wx:if="{{privacyAgreed}}"
+      class="login-button"
+      type="primary"
+      loading="{{loading}}"
+      disabled="{{loading}}"
+      open-type="agreePrivacyAuthorization"
+      bindagreeprivacyauthorization="onPrivacyAuthorized"
+    >
+      授权登录
+    </button>
+
+    <button
+      wx:else
+      class="login-button"
+      type="primary"
+      loading="{{loading}}"
+      disabled="{{loading}}"
+      bindtap="onAuthorizeLogin"
+    >
+      授权登录
+    </button>
+
+    <view class="privacy-consent">
+      <checkbox-group class="checkbox-group" bindchange="onPrivacyChange">
+        <label class="checkbox-label">
+          <checkbox value="privacy" checked="{{privacyAgreed}}" color="#1f7a5a" />
+        </label>
+      </checkbox-group>
+      <text class="consent-text">我已阅读并同意</text>
+      <navigator class="privacy-link" open-type="openPrivacyContract">隐私政策</navigator>
+    </view>
+
+    <view wx:if="{{message}}" class="message" role="alert">{{message}}</view>
+  </view>
+</view>

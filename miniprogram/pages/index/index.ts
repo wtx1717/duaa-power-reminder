@@ -1,4 +1,4 @@
-import { loginWithWechat } from '../../services/auth'
+import { hasAuthenticated, loginWithWechat } from '../../services/auth'
 import { queryPower, savePowerConfig } from '../../services/meter'
 import type {
   MeterPowerView,
@@ -70,10 +70,30 @@ Page({
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
+    redirectingToLogin: false,
   },
 
   async onLoad() {
+    if (!hasAuthenticated()) {
+      this.setData({ redirectingToLogin: true })
+      wx.redirectTo({
+        url: '/pages/login/login',
+      })
+      return
+    }
+
     await this.login()
+  },
+
+  onShow() {
+    if (hasAuthenticated() || this.data.redirectingToLogin) {
+      return
+    }
+
+    this.setData({ redirectingToLogin: true })
+    wx.redirectTo({
+      url: '/pages/login/login',
+    })
   },
 
   async login() {
