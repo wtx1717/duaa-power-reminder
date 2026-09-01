@@ -165,6 +165,41 @@ async function assertMeterBelongsToUser(db, openid, meterId, type) {
   return config
 }
 
+function getErrorDetails(error) {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  if (error && typeof error === 'object') {
+    const fields = [
+      error.code,
+      error.errCode,
+      error.errorCode,
+      error.message,
+      error.errMsg,
+    ].filter((item) => typeof item === 'string' || typeof item === 'number')
+
+    if (fields.length) {
+      return fields.join(' ')
+    }
+  }
+
+  try {
+    return JSON.stringify(error)
+  } catch (_serializationError) {
+    return String(error)
+  }
+}
+
+function isDuplicateKeyError(error) {
+  const details = getErrorDetails(error)
+  return /E11000|DUPLICATE[_\s-]*KEY|duplicate\s+key|duplicate\s+key\s+error|duplicate.*(?:index|unique)|unique.*(?:index|constraint|key)|唯一.*(?:索引|键)|(?:索引|键).*唯一/i.test(details)
+}
+
 async function updateMeter(db, record, type) {
   const now = db.serverDate()
   const meters = db.collection(COLLECTIONS.meters)
@@ -187,17 +222,37 @@ async function updateMeter(db, record, type) {
     return
   }
 
-  await meters.add({
-    data: {
-      meterId: record.meterId,
-      createdAt: now,
-      nextCheckAt: new Date(),
-      checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
-      estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
-      scheduleMode: 'normal',
-      ...data,
-    },
-  })
+  try {
+    await meters.add({
+      data: {
+        meterId: record.meterId,
+        createdAt: now,
+        nextCheckAt: new Date(),
+        checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+        estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+        scheduleMode: 'normal',
+        ...data,
+      },
+    })
+  } catch (error) {
+    if (!isDuplicateKeyError(error)) {
+      throw error
+    }
+
+    const concurrentResult = await meters.where({ meterId: record.meterId }).get()
+    const concurrentMeter = concurrentResult.data[0]
+
+    if (!concurrentMeter || !concurrentMeter._id) {
+      throw new Error(`更新电表 ${record.meterId} 时检测到重复键，但未能读取已有记录`)
+    }
+
+    await meters.doc(concurrentMeter._id).update({
+      data: {
+        ...data,
+        failCount: record.ok ? 0 : ((concurrentMeter.failCount || 0) + 1),
+      },
+    })
+  }
 
 }
 
@@ -290,3 +345,6 @@ exports.main = async (event) => {
 
   return record
 }
+
+exports.isDuplicateKeyError = isDuplicateKeyError
+exports.updateMeter = updateMeter

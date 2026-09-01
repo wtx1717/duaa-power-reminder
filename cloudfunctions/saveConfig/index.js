@@ -66,38 +66,86 @@ function normalizeSubscribeStatus(value) {
     : undefined
 }
 
-async function upsertMeter(db, meterId, type) {
-  const now = db.serverDate()
-  const meters = db.collection(COLLECTIONS.meters)
-  const existing = await meters.where({ meterId }).get()
-  const current = existing.data[0]
-  const data = {
+function getErrorDetails(error) {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  if (error && typeof error === 'object') {
+    const fields = [
+      error.code,
+      error.errCode,
+      error.errorCode,
+      error.message,
+      error.errMsg,
+    ].filter((item) => typeof item === 'string' || typeof item === 'number')
+
+    if (fields.length) {
+      return fields.join(' ')
+    }
+  }
+
+  try {
+    return JSON.stringify(error)
+  } catch (_serializationError) {
+    return String(error)
+  }
+}
+
+function isDuplicateKeyError(error) {
+  const details = getErrorDetails(error)
+  return /E11000|DUPLICATE[_\s-]*KEY|duplicate\s+key|duplicate\s+key\s+error|duplicate.*(?:index|unique)|unique.*(?:index|constraint|key)|唯一.*(?:索引|键)|(?:索引|键).*唯一/i.test(details)
+}
+
+function buildExistingMeterData(current, type, updatedAt) {
+  return {
     type,
     checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
     estimatedDailyUsageKwh: current && Number.isFinite(Number(current.estimatedDailyUsageKwh))
       ? Number(current.estimatedDailyUsageKwh)
       : DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
     scheduleMode: current && current.scheduleMode ? current.scheduleMode : DEFAULT_SCHEDULE_MODE,
-    updatedAt: now,
+    updatedAt,
   }
+}
 
-  if (current && current._id) {
-    await meters.doc(current._id).update({ data })
+async function upsertMeter(db, meterId, type) {
+  const now = db.serverDate()
+  const meters = db.collection(COLLECTIONS.meters)
+  try {
+    await meters.add({
+      data: {
+        meterId,
+        type,
+        failCount: 0,
+        nextCheckAt: new Date(),
+        checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+        estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+        scheduleMode: DEFAULT_SCHEDULE_MODE,
+        createdAt: now,
+        updatedAt: now,
+      },
+    })
     return
+  } catch (error) {
+    if (!isDuplicateKeyError(error)) {
+      throw error
+    }
   }
 
-  await meters.add({
-    data: {
-      meterId,
-      type,
-      failCount: 0,
-      nextCheckAt: new Date(),
-      checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
-      estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
-      scheduleMode: DEFAULT_SCHEDULE_MODE,
-      createdAt: now,
-      updatedAt: now,
-    },
+  const existing = await meters.where({ meterId }).get()
+  const current = existing.data[0]
+
+  if (!current || !current._id) {
+    throw new Error(`创建电表 ${meterId} 时检测到重复键，但未能读取已有记录`)
+  }
+
+  await meters.doc(current._id).update({
+    data: buildExistingMeterData(current, type, now),
   })
 }
 
@@ -152,3 +200,6 @@ exports.main = async (event) => {
     config,
   }
 }
+
+exports.isDuplicateKeyError = isDuplicateKeyError
+exports.upsertMeter = upsertMeter

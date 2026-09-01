@@ -1,4 +1,5 @@
 import { COLLECTIONS, getCloudContext, getDatabase } from '../shared/db'
+import type { DatabaseAdapter } from '../shared/db'
 import type { Meter, SaveConfigInput, SubscribeStatus, UserConfig } from '../shared/types'
 
 export interface SaveConfigResult {
@@ -79,42 +80,101 @@ function normalizeSubscribeStatus(value: SaveConfigInput['notificationSubscribeS
     : undefined
 }
 
-async function upsertMeter(
-  meterId: string,
+function getErrorDetails(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  if (error && typeof error === 'object') {
+    const value = error as {
+      code?: unknown
+      errCode?: unknown
+      errMsg?: unknown
+      errorCode?: unknown
+      message?: unknown
+    }
+    const fields = [
+      value.code,
+      value.errCode,
+      value.errorCode,
+      value.message,
+      value.errMsg,
+    ].filter((item): item is string | number => typeof item === 'string' || typeof item === 'number')
+
+    if (fields.length) {
+      return fields.join(' ')
+    }
+  }
+
+  try {
+    return JSON.stringify(error)
+  } catch (_serializationError) {
+    return String(error)
+  }
+}
+
+export function isDuplicateKeyError(error: unknown): boolean {
+  const details = getErrorDetails(error)
+  return /E11000|DUPLICATE[_\s-]*KEY|duplicate\s+key|duplicate\s+key\s+error|duplicate.*(?:index|unique)|unique.*(?:index|constraint|key)|唯一.*(?:索引|键)|(?:索引|键).*唯一/i.test(details)
+}
+
+function buildExistingMeterData(
+  current: (Meter & StoredDocument) | undefined,
   type: Meter['type'],
-): Promise<void> {
-  const db = getDatabase()
-  const now = db.serverDate()
-  const meters = db.collection<Meter & StoredDocument>(COLLECTIONS.meters)
-  const existing = await meters.where({ meterId }).get()
-  const current = existing.data[0]
-  const data: Record<string, unknown> = {
+  updatedAt: Date,
+): Record<string, unknown> {
+  return {
     type,
     checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
     estimatedDailyUsageKwh: Number.isFinite(Number(current?.estimatedDailyUsageKwh))
       ? Number(current?.estimatedDailyUsageKwh)
       : DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
     scheduleMode: current?.scheduleMode || DEFAULT_SCHEDULE_MODE,
-    updatedAt: now,
+    updatedAt,
   }
+}
 
-  if (current?._id) {
-    await meters.doc(current._id).update({ data })
+export async function upsertMeter(
+  db: DatabaseAdapter,
+  meterId: string,
+  type: Meter['type'],
+): Promise<void> {
+  const now = db.serverDate()
+  const meters = db.collection<Meter & StoredDocument>(COLLECTIONS.meters)
+  try {
+    await meters.add({
+      data: {
+        meterId,
+        type,
+        failCount: 0,
+        nextCheckAt: new Date(),
+        checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
+        estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
+        scheduleMode: DEFAULT_SCHEDULE_MODE,
+        createdAt: now,
+        updatedAt: now,
+      },
+    })
     return
+  } catch (error) {
+    if (!isDuplicateKeyError(error)) {
+      throw error
+    }
   }
 
-  await meters.add({
-    data: {
-      meterId,
-      type,
-      failCount: 0,
-      nextCheckAt: new Date(),
-      checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
-      estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
-      scheduleMode: DEFAULT_SCHEDULE_MODE,
-      createdAt: now,
-      updatedAt: now,
-    },
+  const existing = await meters.where({ meterId }).get()
+  const current = existing.data[0]
+
+  if (!current?._id) {
+    throw new Error(`创建电表 ${meterId} 时检测到重复键，但未能读取已有记录`)
+  }
+
+  await meters.doc(current._id).update({
+    data: buildExistingMeterData(current, type, now),
   })
 }
 
@@ -161,8 +221,8 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
     })
   }
 
-  await upsertMeter(input.lightMeterId, 'light')
-  await upsertMeter(input.acMeterId, 'ac')
+  await upsertMeter(db, input.lightMeterId, 'light')
+  await upsertMeter(db, input.acMeterId, 'ac')
 
   return {
     ok: true,
