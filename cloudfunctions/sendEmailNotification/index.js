@@ -10,6 +10,7 @@ const DEFAULT_SMTP_PORT = 465
 const DEFAULT_SMTP_USER = '13100162717@163.com'
 const DEFAULT_MAIL_TIME_ZONE = 'Asia/Shanghai'
 const DEFAULT_REMINDER_THRESHOLD_KWH = 20
+const RECHARGE_URL = 'http://shsd.buaa.edu.cn/BuaaPay'
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -200,7 +201,7 @@ function createMail(input) {
   const addressText = input.address || '未解析到公寓地址'
   const subject = `低电量提醒：${typeLabel}剩余 ${input.remainingKwh} kWh`
   const lines = [
-    '宿舍电量已达到提醒阈值。',
+    '宿舍电量已达到提醒阈值，请及时充值。',
     '',
     `电表类型：${typeLabel}`,
     `电表号：${input.meterId}`,
@@ -208,10 +209,17 @@ function createMail(input) {
     `提醒阈值：${input.thresholdKwh} kWh`,
     `查询时间：${timeText}`,
     `公寓地址：${addressText}`,
+    '',
+    '立即充值：',
+    RECHARGE_URL,
+    '',
+    '如需解绑电表或关闭提醒，请进入小程序页面操作。',
+    '',
+    'duaa 宿舍电量提醒',
   ]
   const html = `
-    <div>
-      <p>宿舍电量已达到提醒阈值。</p>
+    <div style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.6;color:#222;">
+      <p>宿舍电量已达到提醒阈值，请及时充值。</p>
       <ul>
         <li>电表类型：${escapeHtml(typeLabel)}</li>
         <li>电表号：${escapeHtml(input.meterId)}</li>
@@ -220,6 +228,15 @@ function createMail(input) {
         <li>查询时间：${escapeHtml(timeText)}</li>
         <li>公寓地址：${escapeHtml(addressText)}</li>
       </ul>
+      <p>如需充值，请点击下方按钮进入充值页面：</p>
+      <p>
+        <a
+          href="${RECHARGE_URL}"
+          style="display:inline-block;padding:10px 18px;background-color:#1677ff;color:#fff;text-decoration:none;border-radius:4px;white-space:nowrap;"
+        >立即充值</a>
+      </p>
+      <p>如需解绑电表或关闭提醒，请进入小程序页面操作。</p>
+      <p>duaa 宿舍电量提醒</p>
     </div>
   `
 
