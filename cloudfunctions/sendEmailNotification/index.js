@@ -243,6 +243,9 @@ async function sendMail(input) {
     host: smtp.host,
     port: smtp.port,
     secure: smtp.secure,
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 5000,
     auth: {
       user: smtp.user,
       pass: smtp.pass,

@@ -8,6 +8,7 @@ const COLLECTIONS = {
 }
 
 const MAX_JOBS_PER_DISPATCH = 10
+const DISPATCH_CONCURRENCY = 4
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -86,6 +87,79 @@ async function markExpired(db, job) {
   })
 }
 
+function createJobSummary() {
+  return {
+    checkedMeters: 0,
+    failedJobs: 0,
+    expiredJobs: 0,
+    sentNotifications: 0,
+    failedNotifications: 0,
+    skippedNotifications: 0,
+    errors: [],
+  }
+}
+
+function mergeJobSummary(result, summary) {
+  result.checkedMeters += summary.checkedMeters || 0
+  result.failedJobs += summary.failedJobs || 0
+  result.expiredJobs += summary.expiredJobs || 0
+  result.sentNotifications += summary.sentNotifications || 0
+  result.failedNotifications += summary.failedNotifications || 0
+  result.skippedNotifications += summary.skippedNotifications || 0
+
+  if (Array.isArray(summary.errors) && summary.errors.length) {
+    result.errors.push(...summary.errors)
+  }
+}
+
+async function runJobsWithConcurrency(jobs, concurrency, handler) {
+  const results = []
+  let nextJobIndex = 0
+  let shouldStop = false
+  const workerCount = Math.min(concurrency, jobs.length)
+
+  async function worker() {
+    while (true) {
+      if (shouldStop) {
+        return
+      }
+
+      const jobIndex = nextJobIndex
+      nextJobIndex += 1
+
+      if (jobIndex >= jobs.length) {
+        return
+      }
+
+      if (shouldStop) {
+        return
+      }
+
+      const outcome = await handler(jobs[jobIndex], {
+        shouldStop: () => shouldStop,
+        stop: () => {
+          shouldStop = true
+        },
+      })
+
+      if (outcome && outcome.stats) {
+        results.push(outcome.stats)
+      }
+
+      if (outcome && outcome.stopped) {
+        shouldStop = true
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+
+  return {
+    results,
+    shouldStop,
+  }
+}
+
 exports.main = async () => {
   const db = cloud.database()
   const result = {
@@ -109,58 +183,89 @@ exports.main = async () => {
 
   result.expiredJobs += await expireStaleJobs(db)
   const jobs = await getDueJobs(db)
-  const now = new Date()
+  const { results: jobSummaries, shouldStop } = await runJobsWithConcurrency(
+    jobs.data,
+    DISPATCH_CONCURRENCY,
+    async (job, control) => {
+      const summary = createJobSummary()
 
-  for (const job of jobs.data) {
-    if (!canDispatchScheduledJob(new Date())) {
-      result.skipped = true
-      result.reason = 'outside_working_hours'
-      break
-    }
+      if (control.shouldStop()) {
+        return {
+          stats: summary,
+          stopped: true,
+        }
+      }
 
-    const deadlineAt = asDate(job.deadlineAt)
+      const jobNow = new Date()
 
-    if (deadlineAt && deadlineAt < now) {
+      if (!canDispatchScheduledJob(jobNow)) {
+        control.stop()
+        return {
+          stats: summary,
+          stopped: true,
+        }
+      }
+
+      const deadlineAt = asDate(job.deadlineAt)
+
+      if (deadlineAt && deadlineAt < jobNow) {
+        try {
+          await markExpired(db, job)
+          summary.expiredJobs += 1
+        } catch (error) {
+          summary.failedJobs += 1
+          summary.errors.push({
+            jobId: job._id,
+            meterId: job.meterId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+
+        return {
+          stats: summary,
+        }
+      }
+
       try {
-        await markExpired(db, job)
-        result.expiredJobs += 1
+        const jobResult = await executePlannedJob(db, job._id)
+
+        if (jobResult.status === 'done') {
+          summary.checkedMeters += jobResult.checkedMeters || 0
+          summary.sentNotifications += jobResult.sentNotifications || 0
+          summary.failedNotifications += jobResult.failedNotifications || 0
+          summary.skippedNotifications += jobResult.skippedNotifications || 0
+        } else if (jobResult.status === 'expired') {
+          summary.expiredJobs += 1
+        } else if (jobResult.status === 'failed') {
+          summary.failedJobs += 1
+          summary.errors.push({
+            jobId: job._id,
+            meterId: job.meterId,
+            error: jobResult.error || 'Failed to execute planned job',
+          })
+        }
       } catch (error) {
-        result.failedJobs += 1
-        result.errors.push({
+        summary.failedJobs += 1
+        summary.errors.push({
           jobId: job._id,
           meterId: job.meterId,
           error: error instanceof Error ? error.message : String(error),
         })
       }
-      continue
-    }
 
-    try {
-      const jobResult = await executePlannedJob(db, job._id)
-
-      if (jobResult.status === 'done') {
-        result.checkedMeters += jobResult.checkedMeters || 0
-        result.sentNotifications += jobResult.sentNotifications || 0
-        result.failedNotifications += jobResult.failedNotifications || 0
-        result.skippedNotifications += jobResult.skippedNotifications || 0
-      } else if (jobResult.status === 'expired') {
-        result.expiredJobs += 1
-      } else if (jobResult.status === 'failed') {
-        result.failedJobs += 1
-        result.errors.push({
-          jobId: job._id,
-          meterId: job.meterId,
-          error: jobResult.error || 'Failed to execute planned job',
-        })
+      return {
+        stats: summary,
       }
-    } catch (error) {
-      result.failedJobs += 1
-      result.errors.push({
-        jobId: job._id,
-        meterId: job.meterId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
+    },
+  )
+
+  for (const summary of jobSummaries) {
+    mergeJobSummary(result, summary)
+  }
+
+  if (shouldStop) {
+    result.skipped = true
+    result.reason = 'outside_working_hours'
   }
 
   return result

@@ -10,7 +10,7 @@ const COLLECTIONS = {
 
 const DEFAULT_POWER_BASE_URL = 'https://shsd.buaa.edu.cn/PubBuaa'
 const XYL_AC_POWER_BASE_URL = 'https://xylktsd.buaa.edu.cn/PubBuaa'
-const REQUEST_TIMEOUT_MS = 15000
+const REQUEST_TIMEOUT_MS = 3000
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 
