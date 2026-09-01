@@ -64,7 +64,8 @@ page {
 }
 
 .save-button,
-.query-button {
+.query-button,
+.unbind-button {
   width: 100%;
   margin-top: 20rpx;
   border-radius: 8rpx;
@@ -78,6 +79,11 @@ page {
 .query-button {
   color: #fff;
   background: #265fbd;
+}
+
+.unbind-button {
+  color: #fff;
+  background: #b5452f;
 }
 
 .result-list {

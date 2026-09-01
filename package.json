@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "test": "npm run test:scheduled-plan && npm run test:meter-binding",
+    "test": "npm run test:scheduled-plan && npm run test:meter-binding && npm run test:unbind",
     "test:meter-binding": "node scripts/test-meter-binding-concurrency.js",
-    "test:scheduled-plan": "node scripts/test-scheduled-random-plan.js"
+    "test:scheduled-plan": "node scripts/test-scheduled-random-plan.js",
+    "test:unbind": "node scripts/test-unbind-config.js"
   },
   "keywords": [],
   "author": "",

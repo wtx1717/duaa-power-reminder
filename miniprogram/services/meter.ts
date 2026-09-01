@@ -5,6 +5,7 @@ import type {
   SaveConfigPayload,
   SaveConfigResult,
   ScheduledCheckResult,
+  UnbindConfigResult,
 } from '../types/domain'
 
 export async function savePowerConfig(payload: SaveConfigPayload): Promise<SaveConfigResult> {
@@ -24,6 +25,13 @@ export async function queryPower(payload: QueryPowerPayload): Promise<QueryPower
 export async function runScheduledCheck(): Promise<ScheduledCheckResult> {
   return callCloudFunction<Record<string, never>, ScheduledCheckResult>({
     name: 'scheduledCheck',
+    data: {},
+  })
+}
+
+export async function unbindPowerConfig(): Promise<UnbindConfigResult> {
+  return callCloudFunction<Record<string, never>, UnbindConfigResult>({
+    name: 'unbindConfig',
     data: {},
   })
 }

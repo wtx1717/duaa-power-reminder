@@ -54,7 +54,7 @@ function buildPlannedJobs(meters, now, runIdPrefix = 'scheduledCheck') {
 function selectMetersToPlan(dueMeters, activeJobs) {
   return dueMeters.filter((meter) => {
     const meterId = String(meter.meterId || '').trim()
-    return meterId && !activeJobs.has(meterId)
+    return meterId && meter.cleanupPending !== true && !activeJobs.has(meterId)
   })
 }
 

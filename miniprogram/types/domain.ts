@@ -26,6 +26,8 @@ export interface MeterSnapshot {
   checkIntervalMinutes?: number
   estimatedDailyUsageKwh?: number
   scheduleMode?: MeterScheduleMode
+  cleanupPending?: boolean
+  cleanupReason?: string
   lastRechargeDetectedAt?: string
   lowPowerNotifiedAt?: string
 }
@@ -43,6 +45,16 @@ export interface SaveConfigPayload {
 export interface SaveConfigResult {
   ok: boolean
   config?: UserPowerConfig
+  error?: string
+}
+
+export interface UnbindConfigResult {
+  ok: boolean
+  status: 'unbound' | 'already_unbound'
+  cleanedMeters?: string[]
+  retainedMeters?: string[]
+  expiredJobs?: number
+  cleanupPendingMeters?: string[]
   error?: string
 }
 

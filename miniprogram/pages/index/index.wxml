@@ -60,6 +60,15 @@
       查询当前电量
     </button>
 
+    <button
+      class="unbind-button"
+      loading="{{loading}}"
+      disabled="{{loading || saving || queryingAll}}"
+      bindtap="onUnbindAndLogout"
+    >
+      解绑并退出登录
+    </button>
+
     <view class="result-list">
       <view class="result-item">
         <view class="result-header">

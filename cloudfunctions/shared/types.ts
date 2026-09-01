@@ -32,6 +32,8 @@ export interface Meter {
   scheduleMode?: MeterScheduleMode
   lastRechargeDetectedAt?: Date
   lowPowerNotifiedAt?: Date
+  cleanupPending?: boolean
+  cleanupReason?: string
   failCount: number
   lastError?: string
   createdAt: Date

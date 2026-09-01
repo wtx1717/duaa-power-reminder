@@ -3,6 +3,7 @@ export const COLLECTIONS = {
   meters: 'meters',
   powerRecords: 'power_records',
   notificationRecords: 'notification_records',
+  meterCheckJobs: 'meter_check_jobs',
   jobLocks: 'job_locks',
 } as const
 
@@ -19,12 +20,14 @@ export interface CollectionReference<T> {
 }
 
 export interface DocumentReference {
+  remove(): Promise<unknown>
   set(options: { data: Record<string, unknown> }): Promise<unknown>
   update(options: { data: Record<string, unknown> }): Promise<unknown>
 }
 
 export interface QueryReference<T> {
   get(): Promise<QueryResult<T>>
+  update(options: { data: Record<string, unknown> }): Promise<unknown>
 }
 
 export interface DatabaseAdapter {

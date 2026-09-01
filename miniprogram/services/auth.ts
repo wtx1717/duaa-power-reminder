@@ -3,6 +3,10 @@ import type { LoginResult } from '../types/domain'
 
 export const AUTHENTICATED_STORAGE_KEY = 'duaa-authenticated'
 
+export function clearAuthenticated(): void {
+  wx.removeStorageSync(AUTHENTICATED_STORAGE_KEY)
+}
+
 export function hasAuthenticated(): boolean {
   return wx.getStorageSync(AUTHENTICATED_STORAGE_KEY) === true
 }

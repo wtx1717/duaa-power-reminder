@@ -1,10 +1,11 @@
-import { hasAuthenticated, loginWithWechat } from '../../services/auth'
-import { queryPower, savePowerConfig } from '../../services/meter'
+import { clearAuthenticated, hasAuthenticated, loginWithWechat } from '../../services/auth'
+import { queryPower, savePowerConfig, unbindPowerConfig } from '../../services/meter'
 import type {
   MeterPowerView,
   QueryPowerResult,
   SaveConfigPayload,
   SubscribeStatus,
+  UnbindConfigResult,
 } from '../../types/domain'
 
 type InputEvent = {
@@ -54,6 +55,87 @@ function normalizeSubscribeStatus(status?: SubscribeStatus): SubscribeStatus {
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+function showConfirmModal(content: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    wx.showModal({
+      title: '确认解绑',
+      content,
+      confirmText: '继续解绑',
+      confirmColor: '#b5452f',
+      success(result) {
+        resolve(result.confirm)
+      },
+      fail() {
+        resolve(false)
+      },
+    })
+  })
+}
+
+function resetUnboundState() {
+  return {
+    openid: '',
+    openidText: '未登录',
+    lightMeterId: '',
+    acMeterId: '',
+    email: '',
+    notificationSubscribeStatus: 'unknown' as SubscribeStatus,
+    message: '',
+    lightPower: createMeterView('照明'),
+    acPower: createMeterView('空调'),
+    redirectingToLogin: true,
+  }
+}
+
+function formatUnbindError(error: unknown): string {
+  let message = ''
+
+  if (error instanceof Error) {
+    message = error.message
+  } else if (typeof error === 'string') {
+    message = error
+  } else if (error && typeof error === 'object') {
+    const value = error as {
+      errMsg?: unknown
+      message?: unknown
+      error?: unknown
+    }
+    const details = [value.errMsg, value.message, value.error]
+      .filter((item): item is string => typeof item === 'string' && item.length > 0)
+    message = details[0] || ''
+  }
+
+  if (!message) {
+    return '云函数返回未知错误'
+  }
+
+  if (/无法获取当前用户身份/.test(message)) {
+    return '无法获取当前用户身份'
+  }
+
+  if (/查询用户配置失败/.test(message)) {
+    return message
+  }
+
+  if (/删除用户配置失败/.test(message)) {
+    return message
+  }
+
+  if (/调度任务处理失败/.test(message)) {
+    return message
+  }
+
+  if (/电表清理失败|查询电表失败|查询其他用户绑定失败/.test(message)) {
+    return message
+  }
+
+  if (/request|timeout|network|fail|interrupted|ERR_/i.test(message)) {
+    return '网络异常，请稍后重试'
+  }
+
+  return `云函数返回未知错误：${message}`
 }
 
 Page({
@@ -289,6 +371,52 @@ Page({
     } finally {
       this.setData({
         queryingAll: false,
+      })
+    }
+  },
+
+  async onUnbindAndLogout() {
+    if (this.data.loading || this.data.saving || this.data.queryingAll) {
+      return
+    }
+
+    const confirmed = await showConfirmModal(
+      '解绑后将删除当前电表和邮箱配置，关闭低电量提醒，并退出当前账号。历史查询记录和提醒记录会保留。确定继续吗？',
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    this.setData({
+      loading: true,
+      message: '',
+    })
+
+    try {
+      const result: UnbindConfigResult = await unbindPowerConfig()
+
+      if (!result || !result.ok) {
+        throw new Error(result && result.error ? result.error : '云函数返回未知错误')
+      }
+
+      const app = getApp<IAppOption>()
+      app.globalData.openid = undefined
+      clearAuthenticated()
+      this.setData(resetUnboundState())
+
+      wx.showToast({
+        title: '解绑成功',
+        icon: 'success',
+      })
+
+      wx.reLaunch({
+        url: '/pages/login/login',
+      })
+    } catch (error) {
+      this.setData({
+        loading: false,
+        message: formatUnbindError(error),
       })
     }
   },
