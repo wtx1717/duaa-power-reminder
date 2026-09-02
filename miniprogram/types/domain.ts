@@ -1,17 +1,12 @@
 export type MeterType = 'light' | 'ac'
 export type MeterScheduleMode = 'normal' | 'near_threshold' | 'notified'
 
-export type SubscribeStatus = 'unknown' | 'accepted' | 'rejected'
-export type NotificationSubscribeStatus = 'accepted' | 'rejected' | 'skipped'
-
 export interface UserPowerConfig {
   openid: string
   lightMeterId: string
   acMeterId: string
   email: string
-  thresholdKwh: number
   reminderEnabled: boolean
-  subscribeStatus: SubscribeStatus
   createdAt?: string
   updatedAt?: string
 }
@@ -37,9 +32,6 @@ export interface SaveConfigPayload {
   acMeterId: string
   email: string
   reminderEnabled: boolean
-  nextCheckAt?: string
-  checkIntervalMinutes?: number
-  notificationSubscribeStatus?: SubscribeStatus
 }
 
 export interface SaveConfigResult {
@@ -70,7 +62,6 @@ export interface LoginResult {
 export interface QueryPowerPayload {
   meterId: string
   type: MeterType
-  notificationSubscribeStatus?: NotificationSubscribeStatus
 }
 
 export interface QueryPowerResult {

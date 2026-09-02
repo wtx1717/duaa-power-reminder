@@ -13,6 +13,11 @@ class MockDatabase {
     this.now = new Date('2026-09-01T00:00:00.000Z')
     this.enforceMeterUniqueIndex = true
     this.hideMetersUntilDuplicateAdd = false
+    this.command = {
+      remove() {
+        return { __op: 'remove' }
+      },
+    }
   }
 
   serverDate() {
@@ -64,11 +69,21 @@ class MockDatabase {
           async update({ data }) {
             const document = (database.collections[name] || []).find((item) => item._id === id)
             assert(document, `document ${id} not found`)
-            Object.assign(document, data)
+            applyUpdate(document, data)
             return { stats: { updated: 1 } }
           },
         }
       },
+    }
+  }
+}
+
+function applyUpdate(document, data) {
+  for (const [key, value] of Object.entries(data)) {
+    if (value && typeof value === 'object' && value.__op === 'remove') {
+      delete document[key]
+    } else {
+      document[key] = value
     }
   }
 }
@@ -91,6 +106,8 @@ function loadCloudFunctions(database, context) {
   }
 
   try {
+    delete require.cache[require.resolve('../cloudfunctions/saveConfig/index.js')]
+    delete require.cache[require.resolve('../cloudfunctions/queryPower/index.js')]
     return {
       saveConfig: require('../cloudfunctions/saveConfig/index.js'),
       queryPower: require('../cloudfunctions/queryPower/index.js'),
@@ -125,6 +142,8 @@ async function testSaveConfigConcurrency() {
   })
   assert.strictEqual(database.collections.user_configs.length, 1, 'same user should update one config')
   assert.strictEqual(database.collections.user_configs[0].email, 'updated@example.com')
+  assert(!Object.prototype.hasOwnProperty.call(database.collections.user_configs[0], 'subscribeStatus'))
+  assert(!Object.prototype.hasOwnProperty.call(database.collections.user_configs[0], 'thresholdKwh'))
 
   lightMeter.lastQueriedAt = new Date('2026-09-01T01:00:00.000Z')
   lightMeter.lastRemainingKwh = 12
@@ -146,6 +165,47 @@ async function testSaveConfigConcurrency() {
   assert.strictEqual(lightMeter.failCount, 4, 'existing failCount must be preserved')
   assert.strictEqual(lightMeter.lastError, 'previous error', 'existing lastError must be preserved')
   assert.strictEqual(database.collections.user_configs[1].email, 'second@example.com')
+}
+
+async function testSaveConfigRemovesLegacyFields() {
+  const database = new MockDatabase()
+  const context = { OPENID: 'openid-user-1' }
+  const { saveConfig } = loadCloudFunctions(database, context)
+  database.collections.user_configs.push({
+    _id: 'config-legacy',
+    openid: 'openid-user-1',
+    lightMeterId: 'OLD-LIGHT',
+    acMeterId: 'OLD-AC',
+    email: 'old@example.com',
+    reminderEnabled: true,
+    subscribeStatus: 'accepted',
+    thresholdKwh: 20,
+    lastManualLightQueryAt: new Date(),
+    manualLightQueryLockUntil: new Date(),
+    lastManualAcQueryAt: new Date(),
+    manualAcQueryLockUntil: new Date(),
+  })
+
+  await saveConfig.main({
+    lightMeterId: 'LIGHT-001',
+    acMeterId: 'AC-001',
+    email: 'new@example.com',
+    reminderEnabled: true,
+  })
+
+  const config = database.collections.user_configs[0]
+  assert.strictEqual(config.lightMeterId, 'LIGHT-001')
+  assert.strictEqual(config.acMeterId, 'AC-001')
+  for (const field of [
+    'subscribeStatus',
+    'thresholdKwh',
+    'lastManualLightQueryAt',
+    'manualLightQueryLockUntil',
+    'lastManualAcQueryAt',
+    'manualAcQueryLockUntil',
+  ]) {
+    assert(!Object.prototype.hasOwnProperty.call(config, field), `${field} should be removed`)
+  }
 }
 
 async function testDuplicateKeyRecovery() {
@@ -210,6 +270,7 @@ async function testQueryPowerDuplicateKeyRecovery() {
 
 async function main() {
   await testSaveConfigConcurrency()
+  await testSaveConfigRemovesLegacyFields()
   await testDuplicateKeyRecovery()
   await testQueryPowerDuplicateKeyRecovery()
   console.log('OK: meter binding concurrency tests passed.')

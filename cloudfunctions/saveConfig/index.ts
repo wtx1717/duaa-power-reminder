@@ -1,6 +1,6 @@
 import { COLLECTIONS, getCloudContext, getDatabase } from '../shared/db'
 import type { DatabaseAdapter } from '../shared/db'
-import type { Meter, SaveConfigInput, SubscribeStatus, UserConfig } from '../shared/types'
+import type { Meter, SaveConfigInput, UserConfig } from '../shared/types'
 
 export interface SaveConfigResult {
   ok: boolean
@@ -18,15 +18,11 @@ interface StoredDocument {
 type ValidatedSaveConfigInput = Pick<
   SaveConfigInput,
   'lightMeterId' | 'acMeterId' | 'email' | 'reminderEnabled'
-> & Pick<
-  UserConfig,
-  'thresholdKwh'
 >
 
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 const DEFAULT_SCHEDULE_MODE = 'normal'
-const DEFAULT_REMINDER_THRESHOLD_KWH = 20
 
 function normalizeMeterId(value: string): string {
   return String(value || '').trim()
@@ -69,15 +65,8 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
     lightMeterId,
     acMeterId,
     email,
-    thresholdKwh: DEFAULT_REMINDER_THRESHOLD_KWH,
     reminderEnabled: true,
   }
-}
-
-function normalizeSubscribeStatus(value: SaveConfigInput['notificationSubscribeStatus']): SubscribeStatus | undefined {
-  return value === 'accepted' || value === 'rejected' || value === 'unknown'
-    ? value
-    : undefined
 }
 
 function getErrorDetails(error: unknown): string {
@@ -191,24 +180,26 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
   const userConfigs = db.collection<UserConfig & StoredDocument>(COLLECTIONS.userConfigs)
   const existing = await userConfigs.where({ openid: OPENID }).get()
   const current = existing.data[0]
-  const subscribeStatus: SubscribeStatus = normalizeSubscribeStatus(event.notificationSubscribeStatus)
-    || current?.subscribeStatus
-    || 'unknown'
   const config = {
     openid: OPENID,
     lightMeterId: input.lightMeterId,
     acMeterId: input.acMeterId,
     email: input.email,
-    thresholdKwh: input.thresholdKwh,
     reminderEnabled: input.reminderEnabled,
-    subscribeStatus,
   }
 
   if (current?._id) {
+    const remove = db.command.remove()
     await userConfigs.doc(current._id).update({
       data: {
         ...config,
         updatedAt: now,
+        subscribeStatus: remove,
+        thresholdKwh: remove,
+        lastManualLightQueryAt: remove,
+        manualLightQueryLockUntil: remove,
+        lastManualAcQueryAt: remove,
+        manualAcQueryLockUntil: remove,
       },
     })
   } else {

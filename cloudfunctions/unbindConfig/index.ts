@@ -136,6 +136,33 @@ async function deleteUserConfigs(
   }
 }
 
+async function deleteUserQueryState(
+  db: DatabaseAdapter,
+  openid: string,
+): Promise<void> {
+  try {
+    const result = await db.collection<{ _id?: string } & StoredDocument>(COLLECTIONS.userQueryState)
+      .where({ openid })
+      .get()
+
+    for (const item of result.data) {
+      if (item._id) {
+        try {
+          await db.collection(COLLECTIONS.userQueryState).doc(item._id).remove()
+        } catch (error) {
+          if (!isDocumentNotFoundError(error)) {
+            throw error
+          }
+        }
+      }
+    }
+  } catch (error) {
+    if (!isCollectionNotFoundError(error)) {
+      throw new Error(`删除手动查询状态失败：${getErrorDetails(error)}`)
+    }
+  }
+}
+
 async function findOtherBindings(
   db: DatabaseAdapter,
   target: UnbindTarget,
@@ -345,6 +372,7 @@ export async function main(): Promise<UnbindConfigResult> {
 
   const targets = collectTargets(configs)
   await deleteUserConfigs(db, configs)
+  await deleteUserQueryState(db, OPENID)
 
   const cleanedMeters: string[] = []
   const retainedMeters: string[] = []

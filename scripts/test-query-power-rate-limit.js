@@ -15,6 +15,7 @@ class MockDatabase {
         acMeterId: 'AC-001',
         email: 'user@example.com',
       }],
+      user_query_state: [],
       meters: [],
       power_records: [],
     }
@@ -151,11 +152,26 @@ function loadQueryPower(database, state) {
   }
 }
 
-function resetManualQueryState(config) {
-  config.lastManualLightQueryAt = new Date(0)
-  config.manualLightQueryLockUntil = new Date(0)
-  config.lastManualAcQueryAt = new Date(0)
-  config.manualAcQueryLockUntil = new Date(0)
+function resetManualQueryState(database, openid = 'openid-user-1') {
+  const state = database.collections.user_query_state[0] || {
+    _id: 'query-state-1',
+    openid,
+    createdAt: new Date('2026-09-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+  }
+
+  state.lastManualLightQueryAt = new Date(0)
+  state.manualLightQueryLockUntil = new Date(0)
+  state.lastManualAcQueryAt = new Date(0)
+  state.manualAcQueryLockUntil = new Date(0)
+
+  if (!database.collections.user_query_state.length) {
+    database.collections.user_query_state.push(state)
+  }
+}
+
+function getManualQueryState(database) {
+  return database.collections.user_query_state[0]
 }
 
 async function testSingleQueryAndCooldown() {
@@ -180,7 +196,7 @@ async function testConcurrentDuplicateQuery() {
   const state = { fetchCount: 0, delayMs: 30 }
   const queryPower = loadQueryPower(database, state)
 
-  resetManualQueryState(database.collections.user_configs[0])
+  resetManualQueryState(database)
 
   const results = await Promise.all([
     queryPower.main({ meterId: 'LIGHT-001', type: 'light' }),
@@ -190,6 +206,8 @@ async function testConcurrentDuplicateQuery() {
   assert.strictEqual(results.filter((result) => result.ok).length, 1, 'only one concurrent duplicate should pass')
   assert.strictEqual(results.filter((result) => result.error === TOO_FREQUENT_MESSAGE).length, 1)
   assert.strictEqual(state.fetchCount, 1, 'concurrent duplicate should fetch power page once')
+  assert(getManualQueryState(database), 'manual query state should be created')
+  assert.strictEqual(database.collections.user_configs[0].lastManualLightQueryAt, undefined)
 }
 
 async function testLightAndAcSameClick() {
@@ -197,7 +215,7 @@ async function testLightAndAcSameClick() {
   const state = { fetchCount: 0, delayMs: 0 }
   const queryPower = loadQueryPower(database, state)
 
-  resetManualQueryState(database.collections.user_configs[0])
+  resetManualQueryState(database)
 
   const [lightResult, acResult] = await Promise.all([
     queryPower.main({ meterId: 'LIGHT-001', type: 'light' }),
@@ -207,6 +225,7 @@ async function testLightAndAcSameClick() {
   assert.strictEqual(lightResult.ok, true, 'light query should pass')
   assert.strictEqual(acResult.ok, true, 'ac query should pass')
   assert.strictEqual(state.fetchCount, 2, 'one normal button click should still query both meters')
+  assert(getManualQueryState(database), 'manual query state should be created')
 }
 
 async function main() {

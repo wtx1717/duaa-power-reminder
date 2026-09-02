@@ -6,6 +6,7 @@ class MockDatabase {
   constructor(seed = {}) {
     this.collections = {
       user_configs: [],
+      user_query_state: [],
       meters: [],
       meter_check_jobs: [],
       power_records: [],
@@ -138,6 +139,15 @@ function job(meterId, status, id) {
 function makeDatabase({ configs = [], meters = [], jobs = [] } = {}) {
   return new MockDatabase({
     user_configs: configs,
+    user_query_state: [document({
+      openid: 'openid-current',
+      lastManualLightQueryAt: new Date('2026-09-01T00:00:00.000Z'),
+      manualLightQueryLockUntil: new Date('2026-09-01T00:00:00.000Z'),
+      lastManualAcQueryAt: new Date('2026-09-01T00:00:00.000Z'),
+      manualAcQueryLockUntil: new Date('2026-09-01T00:00:00.000Z'),
+      createdAt: new Date('2026-09-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    }, 'query-state-current')],
     meters,
     meter_check_jobs: jobs,
     power_records: [document({ openid: 'openid-current', meterId: 'LIGHT-001' }, 'power-history')],
@@ -160,6 +170,7 @@ async function testUnbindsUnsharedMetersAndKeepsHistory() {
   assert.strictEqual(result.ok, true)
   assert.strictEqual(result.status, 'unbound')
   assert.deepStrictEqual(database.collections.user_configs, [])
+  assert.deepStrictEqual(database.collections.user_query_state, [])
   assert.deepStrictEqual(database.collections.meters, [])
   assert.strictEqual(database.collections.power_records.length, 1)
   assert.strictEqual(database.collections.notification_records.length, 1)
@@ -285,7 +296,7 @@ function testFrontendFlow() {
   assert(template.includes('bindtap="onUnbindAndLogout"'))
   assert(pageSource.includes('解绑后将删除当前电表和邮箱配置，关闭低电量提醒，并退出当前账号。历史查询记录和提醒记录会保留。确定继续吗？'))
   assert(pageSource.includes('if (!confirmed)'))
-  assert(pageSource.includes("wx.reLaunch({\n        url: '/pages/login/login'"))
+  assert(/wx\.reLaunch\(\{\s*url: '\/pages\/login\/login'/.test(pageSource))
   assert(pageSource.includes('clearAuthenticated()'))
 }
 

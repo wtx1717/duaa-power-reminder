@@ -1,9 +1,6 @@
 export type MeterType = 'light' | 'ac'
 export type MeterScheduleMode = 'normal' | 'near_threshold' | 'notified'
 
-export type SubscribeStatus = 'unknown' | 'accepted' | 'rejected'
-export type NotificationSubscribeStatus = 'accepted' | 'rejected' | 'skipped'
-
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'skipped'
 export type PowerRecordSource = 'queryPower' | 'scheduledCheck'
 
@@ -13,9 +10,18 @@ export interface UserConfig {
   lightMeterId: string
   acMeterId: string
   email: string
-  thresholdKwh: number
   reminderEnabled: boolean
-  subscribeStatus: SubscribeStatus
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface UserQueryState {
+  _id?: string
+  openid: string
+  lastManualLightQueryAt: Date
+  manualLightQueryLockUntil: Date
+  lastManualAcQueryAt: Date
+  manualAcQueryLockUntil: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -62,7 +68,7 @@ export interface NotificationRecord {
   email?: string
   meterId: string
   type?: MeterType
-  channel?: 'email' | 'wechat'
+  channel?: 'email'
   remainingKwh: number
   thresholdKwh: number
   sentAt: Date
@@ -103,13 +109,9 @@ export interface SaveConfigInput {
   acMeterId: string
   email: string
   reminderEnabled: boolean
-  nextCheckAt?: Date | string
-  checkIntervalMinutes?: number | string
-  notificationSubscribeStatus?: SubscribeStatus
 }
 
 export interface QueryPowerInput {
   meterId: string
   type: MeterType
-  notificationSubscribeStatus?: NotificationSubscribeStatus
 }

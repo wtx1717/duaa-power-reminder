@@ -4,6 +4,7 @@ const { URL } = require('url')
 
 const COLLECTIONS = {
   userConfigs: 'user_configs',
+  userQueryState: 'user_query_state',
   meters: 'meters',
   powerRecords: 'power_records',
 }
@@ -16,6 +17,12 @@ const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 const MANUAL_QUERY_INTERVAL_MS = 20 * 1000
 const MANUAL_QUERY_LOCK_MS = 30 * 1000
 const MANUAL_QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
+const MANUAL_QUERY_INITIAL_STATE = {
+  lastManualLightQueryAt: new Date(0),
+  manualLightQueryLockUntil: new Date(0),
+  lastManualAcQueryAt: new Date(0),
+  manualAcQueryLockUntil: new Date(0),
+}
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -110,6 +117,11 @@ function shouldUseXueyuanRoadAcSite(meterId, type) {
   return type === 'ac' && /^\d+$/.test(normalizedMeterId) && Number(normalizedMeterId) < 10000
 }
 
+function isCollectionNotFoundError(error) {
+  const message = error instanceof Error ? error.message : String(error)
+  return /DATABASE_COLLECTION_NOT_EXIST|collection not exists|Db or Table not exist|user_query_state/i.test(message)
+}
+
 function selectPowerBaseUrl(meterId, type) {
   return shouldUseXueyuanRoadAcSite(meterId, type)
     ? XYL_AC_POWER_BASE_URL
@@ -151,6 +163,20 @@ function fetchPowerPage(meterId, type) {
   })
 }
 
+async function ensureCollection(db, collectionName) {
+  if (typeof db.createCollection !== 'function') {
+    return
+  }
+
+  try {
+    await db.createCollection(collectionName)
+  } catch (error) {
+    if (!/already exists|collection exists/i.test(error instanceof Error ? error.message : String(error))) {
+      throw error
+    }
+  }
+}
+
 async function assertMeterBelongsToUser(db, openid, meterId, type) {
   const result = await db.collection(COLLECTIONS.userConfigs).where({ openid }).get()
   const config = result.data[0]
@@ -180,15 +206,57 @@ function getManualQueryFields(type) {
     }
 }
 
-async function ensureManualQueryFields(db, config, fields) {
+async function getOrCreateManualQueryState(db, openid) {
+  const userQueryState = db.collection(COLLECTIONS.userQueryState)
+
+  try {
+    const result = await userQueryState.where({ openid }).get()
+    const current = result.data[0]
+
+    if (current && current._id) {
+      return current
+    }
+  } catch (error) {
+    if (!isCollectionNotFoundError(error)) {
+      throw error
+    }
+
+    await ensureCollection(db, COLLECTIONS.userQueryState)
+  }
+
+  const now = db.serverDate()
+  const data = {
+    openid,
+    ...MANUAL_QUERY_INITIAL_STATE,
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  try {
+    const addResult = await userQueryState.add({ data })
+    return {
+      _id: addResult && (addResult._id || addResult.id),
+      ...data,
+    }
+  } catch (error) {
+    if (!/E11000|DUPLICATE[_\s-]*KEY|duplicate\s+key|unique/i.test(getErrorDetails(error))) {
+      throw error
+    }
+
+    const retry = await userQueryState.where({ openid }).get()
+    return retry.data[0]
+  }
+}
+
+async function ensureManualQueryFields(db, state, fields) {
   const _ = db.command
-  const userConfigs = db.collection(COLLECTIONS.userConfigs)
   const zero = new Date(0)
+  const userQueryState = db.collection(COLLECTIONS.userQueryState)
 
   // 兼容已经存在、还没有限流字段的用户配置。
-  if (!config[fields.lockUntil]) {
-    await userConfigs.where({
-      _id: config._id,
+  if (!state[fields.lockUntil]) {
+    await userQueryState.where({
+      _id: state._id,
       [fields.lockUntil]: _.exists(false),
     }).update({
       data: {
@@ -197,9 +265,9 @@ async function ensureManualQueryFields(db, config, fields) {
     })
   }
 
-  if (!config[fields.lastAt]) {
-    await userConfigs.where({
-      _id: config._id,
+  if (!state[fields.lastAt]) {
+    await userQueryState.where({
+      _id: state._id,
       [fields.lastAt]: _.exists(false),
     }).update({
       data: {
@@ -218,7 +286,7 @@ async function claimManualQuery(db, config, type, now) {
   const fields = getManualQueryFields(type)
   await ensureManualQueryFields(db, config, fields)
 
-  const result = await db.collection(COLLECTIONS.userConfigs)
+  const result = await db.collection(COLLECTIONS.userQueryState)
     .where({
       _id: config._id,
       [fields.lockUntil]: _.lte(now),
@@ -247,7 +315,7 @@ async function releaseManualQueryLock(db, config, type, queriedAt) {
   }
 
   try {
-    await db.collection(COLLECTIONS.userConfigs).doc(config._id).update({ data })
+    await db.collection(COLLECTIONS.userQueryState).doc(config._id).update({ data })
   } catch (error) {
     console.error('Failed to release manual query lock', error)
   }
@@ -344,33 +412,9 @@ async function updateMeter(db, record, type) {
 
 }
 
-function normalizeSubscribeStatus(value) {
-  return value === 'accepted' || value === 'rejected' || value === 'skipped'
-    ? value
-    : 'skipped'
-}
-
-async function updateSubscribeStatus(db, config, subscribeStatus) {
-  if (!config || !config._id || subscribeStatus === 'skipped') {
-    return
-  }
-
-  try {
-    await db.collection(COLLECTIONS.userConfigs).doc(config._id).update({
-      data: {
-        subscribeStatus,
-        updatedAt: db.serverDate(),
-      },
-    })
-  } catch (error) {
-    console.error('Failed to update subscribe status', error)
-  }
-}
-
 exports.main = async (event) => {
   const meterId = String(event.meterId || '').trim()
   const type = event.type
-  const subscribeStatus = normalizeSubscribeStatus(event.notificationSubscribeStatus)
   const queriedAt = new Date()
   const { OPENID } = cloud.getWXContext()
 
@@ -388,9 +432,9 @@ exports.main = async (event) => {
 
   const db = cloud.database()
   const config = await assertMeterBelongsToUser(db, OPENID, meterId, type)
-  await updateSubscribeStatus(db, config, subscribeStatus)
+  const manualQueryState = await getOrCreateManualQueryState(db, OPENID)
 
-  const claimed = await claimManualQuery(db, config, type, queriedAt)
+  const claimed = await claimManualQuery(db, manualQueryState, type, queriedAt)
 
   if (!claimed) {
     return {
@@ -443,7 +487,7 @@ exports.main = async (event) => {
     })
     await updateMeter(db, record, type)
   } finally {
-    await releaseManualQueryLock(db, config, type, queriedAt)
+    await releaseManualQueryLock(db, manualQueryState, type, queriedAt)
   }
 
   return record

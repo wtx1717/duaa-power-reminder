@@ -18,6 +18,22 @@ async function getMeterById(db, meterId) {
   return result.data[0]
 }
 
+function toPublicConfig(config) {
+  if (!config) {
+    return undefined
+  }
+
+  return {
+    openid: config.openid,
+    lightMeterId: config.lightMeterId,
+    acMeterId: config.acMeterId,
+    email: config.email,
+    reminderEnabled: config.reminderEnabled,
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt,
+  }
+}
+
 exports.main = async () => {
   const { OPENID } = cloud.getWXContext()
 
@@ -29,7 +45,7 @@ exports.main = async () => {
   const result = await db.collection(COLLECTIONS.userConfigs).where({
     openid: OPENID,
   }).get()
-  const config = result.data[0]
+  const config = toPublicConfig(result.data[0])
 
   return {
     openid: OPENID,

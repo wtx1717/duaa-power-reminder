@@ -1,5 +1,6 @@
 export const COLLECTIONS = {
   userConfigs: 'user_configs',
+  userQueryState: 'user_query_state',
   meters: 'meters',
   powerRecords: 'power_records',
   notificationRecords: 'notification_records',
@@ -25,6 +26,10 @@ export interface DocumentReference {
   update(options: { data: Record<string, unknown> }): Promise<unknown>
 }
 
+export interface DatabaseCommand {
+  remove(): unknown
+}
+
 export interface QueryReference<T> {
   get(): Promise<QueryResult<T>>
   update(options: { data: Record<string, unknown> }): Promise<unknown>
@@ -32,6 +37,7 @@ export interface QueryReference<T> {
 
 export interface DatabaseAdapter {
   collection<T>(name: CollectionName): CollectionReference<T>
+  command: DatabaseCommand
   serverDate(): Date
 }
 

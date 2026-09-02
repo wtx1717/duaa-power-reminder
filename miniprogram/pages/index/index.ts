@@ -4,7 +4,6 @@ import type {
   MeterPowerView,
   QueryPowerResult,
   SaveConfigPayload,
-  SubscribeStatus,
   UnbindConfigResult,
 } from '../../types/domain'
 
@@ -17,13 +16,13 @@ type InputEvent = {
 const QUERY_BUTTON_COOLDOWN_MS = 3000
 const QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
 
-function maskOpenid(openid: string): string {
-  if (openid.length <= 8) {
-    return openid
-  }
+// function maskOpenid(openid: string): string {
+//   if (openid.length <= 8) {
+//     return openid
+//   }
 
-  return `${openid.slice(0, 4)}****${openid.slice(-4)}`
-}
+//   return `${openid.slice(0, 4)}****${openid.slice(-4)}`
+// }
 
 function createMeterView(
   label: string,
@@ -50,10 +49,6 @@ function formatPowerResult(result: QueryPowerResult): string {
     : `${result.remainingKwh} kWh`
   const cutoff = result.cutoffTime ? `， ${result.cutoffTime}` : ''
   return `剩余 ${remaining}${cutoff}`
-}
-
-function normalizeSubscribeStatus(status?: SubscribeStatus): SubscribeStatus {
-  return status === 'accepted' || status === 'rejected' ? status : 'unknown'
 }
 
 function isValidEmail(email: string): boolean {
@@ -84,7 +79,6 @@ function resetUnboundState() {
     lightMeterId: '',
     acMeterId: '',
     email: '',
-    notificationSubscribeStatus: 'unknown' as SubscribeStatus,
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
@@ -152,7 +146,6 @@ Page({
     loading: true,
     saving: false,
     queryingAll: false,
-    notificationSubscribeStatus: 'unknown' as SubscribeStatus,
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
@@ -197,7 +190,6 @@ Page({
       const lightMeterId = config ? config.lightMeterId : ''
       const acMeterId = config ? config.acMeterId : ''
       const email = config && config.email ? config.email : ''
-      const notificationSubscribeStatus = normalizeSubscribeStatus(config && config.subscribeStatus)
 
       this.setData({
         openid: result.openid,
@@ -205,7 +197,6 @@ Page({
         lightMeterId,
         acMeterId,
         email,
-        notificationSubscribeStatus,
         lightPower: createMeterView('照明', lightMeterId),
         acPower: createMeterView('空调', acMeterId),
       })
@@ -242,14 +233,12 @@ Page({
     })
   },
 
-  buildSavePayload(silent = false, subscribeStatus?: SubscribeStatus): SaveConfigPayload | undefined {
-    const notificationSubscribeStatus = subscribeStatus || this.data.notificationSubscribeStatus
+  buildSavePayload(silent = false): SaveConfigPayload | undefined {
     const payload: SaveConfigPayload = {
       lightMeterId: this.data.lightMeterId.trim(),
       acMeterId: this.data.acMeterId.trim(),
       email: this.data.email.trim(),
       reminderEnabled: true,
-      notificationSubscribeStatus,
     }
 
     if (!payload.lightMeterId) {

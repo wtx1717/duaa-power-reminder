@@ -2,6 +2,7 @@ const cloud = require('wx-server-sdk')
 
 const COLLECTIONS = {
   userConfigs: 'user_configs',
+  userQueryState: 'user_query_state',
   meters: 'meters',
   meterCheckJobs: 'meter_check_jobs',
 }
@@ -105,6 +106,30 @@ async function deleteUserConfigs(db, configs) {
     }
   } catch (error) {
     throw new Error(`删除用户配置失败：${getErrorDetails(error)}`)
+  }
+}
+
+async function deleteUserQueryState(db, openid) {
+  try {
+    const result = await db.collection(COLLECTIONS.userQueryState).where({ openid }).get()
+
+    for (const item of result.data) {
+      if (!item._id) {
+        continue
+      }
+
+      try {
+        await db.collection(COLLECTIONS.userQueryState).doc(item._id).remove()
+      } catch (error) {
+        if (!isDocumentNotFoundError(error)) {
+          throw error
+        }
+      }
+    }
+  } catch (error) {
+    if (!isCollectionNotFoundError(error)) {
+      throw new Error(`删除手动查询状态失败：${getErrorDetails(error)}`)
+    }
   }
 }
 
@@ -281,6 +306,7 @@ exports.main = async () => {
 
   const targets = collectTargets(configs)
   await deleteUserConfigs(db, configs)
+  await deleteUserQueryState(db, OPENID)
 
   const cleanedMeters = []
   const retainedMeters = []

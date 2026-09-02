@@ -8,7 +8,6 @@ const COLLECTIONS = {
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 const DEFAULT_SCHEDULE_MODE = 'normal'
-const DEFAULT_REMINDER_THRESHOLD_KWH = 20
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -55,15 +54,8 @@ function validateInput(input) {
     lightMeterId,
     acMeterId,
     email,
-    thresholdKwh: DEFAULT_REMINDER_THRESHOLD_KWH,
     reminderEnabled: true,
   }
-}
-
-function normalizeSubscribeStatus(value) {
-  return value === 'accepted' || value === 'rejected' || value === 'unknown'
-    ? value
-    : undefined
 }
 
 function getErrorDetails(error) {
@@ -162,24 +154,26 @@ exports.main = async (event) => {
   const userConfigs = db.collection(COLLECTIONS.userConfigs)
   const existing = await userConfigs.where({ openid: OPENID }).get()
   const current = existing.data[0]
-  const subscribeStatus = normalizeSubscribeStatus(event.notificationSubscribeStatus)
-    || (current && current.subscribeStatus)
-    || 'unknown'
   const config = {
     openid: OPENID,
     lightMeterId: input.lightMeterId,
     acMeterId: input.acMeterId,
     email: input.email,
-    thresholdKwh: input.thresholdKwh,
     reminderEnabled: input.reminderEnabled,
-    subscribeStatus,
   }
 
   if (current && current._id) {
+    const remove = db.command.remove()
     await userConfigs.doc(current._id).update({
       data: {
         ...config,
         updatedAt: now,
+        subscribeStatus: remove,
+        thresholdKwh: remove,
+        lastManualLightQueryAt: remove,
+        manualLightQueryLockUntil: remove,
+        lastManualAcQueryAt: remove,
+        manualAcQueryLockUntil: remove,
       },
     })
   } else {

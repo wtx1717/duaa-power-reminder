@@ -20,6 +20,22 @@ async function getMeterById(meterId?: string): Promise<Meter | undefined> {
   return result.data[0]
 }
 
+function toPublicConfig(config?: UserConfig): UserConfig | undefined {
+  if (!config) {
+    return undefined
+  }
+
+  return {
+    openid: config.openid,
+    lightMeterId: config.lightMeterId,
+    acMeterId: config.acMeterId,
+    email: config.email,
+    reminderEnabled: config.reminderEnabled,
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt,
+  }
+}
+
 export async function main(): Promise<LoginResult> {
   const { OPENID } = getCloudContext()
 
@@ -31,7 +47,7 @@ export async function main(): Promise<LoginResult> {
   const result = await db.collection<UserConfig>(COLLECTIONS.userConfigs).where({
     openid: OPENID,
   }).get()
-  const config = result.data[0]
+  const config = toPublicConfig(result.data[0])
 
   return {
     openid: OPENID,
