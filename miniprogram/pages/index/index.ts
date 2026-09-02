@@ -14,6 +14,9 @@ type InputEvent = {
   }
 }
 
+const QUERY_BUTTON_COOLDOWN_MS = 3000
+const QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
+
 function maskOpenid(openid: string): string {
   if (openid.length <= 8) {
     return openid
@@ -86,6 +89,7 @@ function resetUnboundState() {
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
     redirectingToLogin: true,
+    queryCooldownUntil: 0,
   }
 }
 
@@ -153,6 +157,7 @@ Page({
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
     redirectingToLogin: false,
+    queryCooldownUntil: 0,
   },
 
   async onLoad() {
@@ -332,6 +337,12 @@ Page({
   },
 
   async onQueryPower() {
+    const now = Date.now()
+
+    if (this.data.queryingAll || this.data.queryCooldownUntil > now) {
+      return
+    }
+
     const payload = this.buildSavePayload()
 
     if (!payload) {
@@ -340,6 +351,7 @@ Page({
 
     this.setData({
       queryingAll: true,
+      queryCooldownUntil: now + QUERY_BUTTON_COOLDOWN_MS,
       message: '',
       'lightPower.loading': true,
       'acPower.loading': true,
@@ -357,10 +369,18 @@ Page({
         }),
       ])
 
+      const rateLimitedResult = [lightResult, acResult].find(
+        (result) => result.error === QUERY_TOO_FREQUENT_MESSAGE,
+      )
+
       this.setData({
         lightPower: createMeterView('照明', payload.lightMeterId, lightResult),
         acPower: createMeterView('空调', payload.acMeterId, acResult),
-        message: lightResult.ok || acResult.ok ? '查询完成' : '两个电表都查询失败',
+        message: lightResult.ok || acResult.ok
+          ? '查询完成'
+          : rateLimitedResult
+            ? QUERY_TOO_FREQUENT_MESSAGE
+            : '两个电表都查询失败',
       })
     } catch (error) {
       this.setData({

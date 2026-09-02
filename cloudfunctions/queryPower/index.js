@@ -13,6 +13,9 @@ const XYL_AC_POWER_BASE_URL = 'https://xylktsd.buaa.edu.cn/PubBuaa'
 const REQUEST_TIMEOUT_MS = 3000
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
+const MANUAL_QUERY_INTERVAL_MS = 20 * 1000
+const MANUAL_QUERY_LOCK_MS = 30 * 1000
+const MANUAL_QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
@@ -165,6 +168,91 @@ async function assertMeterBelongsToUser(db, openid, meterId, type) {
   return config
 }
 
+function getManualQueryFields(type) {
+  return type === 'ac'
+    ? {
+      lastAt: 'lastManualAcQueryAt',
+      lockUntil: 'manualAcQueryLockUntil',
+    }
+    : {
+      lastAt: 'lastManualLightQueryAt',
+      lockUntil: 'manualLightQueryLockUntil',
+    }
+}
+
+async function ensureManualQueryFields(db, config, fields) {
+  const _ = db.command
+  const userConfigs = db.collection(COLLECTIONS.userConfigs)
+  const zero = new Date(0)
+
+  // 兼容已经存在、还没有限流字段的用户配置。
+  if (!config[fields.lockUntil]) {
+    await userConfigs.where({
+      _id: config._id,
+      [fields.lockUntil]: _.exists(false),
+    }).update({
+      data: {
+        [fields.lockUntil]: zero,
+      },
+    })
+  }
+
+  if (!config[fields.lastAt]) {
+    await userConfigs.where({
+      _id: config._id,
+      [fields.lastAt]: _.exists(false),
+    }).update({
+      data: {
+        [fields.lastAt]: zero,
+      },
+    })
+  }
+}
+
+async function claimManualQuery(db, config, type, now) {
+  if (!config || !config._id) {
+    return false
+  }
+
+  const _ = db.command
+  const fields = getManualQueryFields(type)
+  await ensureManualQueryFields(db, config, fields)
+
+  const result = await db.collection(COLLECTIONS.userConfigs)
+    .where({
+      _id: config._id,
+      [fields.lockUntil]: _.lte(now),
+      [fields.lastAt]: _.lte(new Date(now.getTime() - MANUAL_QUERY_INTERVAL_MS)),
+    })
+    .update({
+      data: {
+        [fields.lockUntil]: new Date(now.getTime() + MANUAL_QUERY_LOCK_MS),
+        updatedAt: db.serverDate(),
+      },
+    })
+
+  return Boolean(result && result.stats && result.stats.updated)
+}
+
+async function releaseManualQueryLock(db, config, type, queriedAt) {
+  if (!config || !config._id) {
+    return
+  }
+
+  const fields = getManualQueryFields(type)
+  const data = {
+    [fields.lockUntil]: new Date(0),
+    [fields.lastAt]: queriedAt,
+    updatedAt: db.serverDate(),
+  }
+
+  try {
+    await db.collection(COLLECTIONS.userConfigs).doc(config._id).update({ data })
+  } catch (error) {
+    console.error('Failed to release manual query lock', error)
+  }
+}
+
 function getErrorDetails(error) {
   if (error instanceof Error) {
     return error.message
@@ -302,6 +390,17 @@ exports.main = async (event) => {
   const config = await assertMeterBelongsToUser(db, OPENID, meterId, type)
   await updateSubscribeStatus(db, config, subscribeStatus)
 
+  const claimed = await claimManualQuery(db, config, type, queriedAt)
+
+  if (!claimed) {
+    return {
+      meterId,
+      ok: false,
+      error: MANUAL_QUERY_TOO_FREQUENT_MESSAGE,
+      queriedAt,
+    }
+  }
+
   let record
 
   try {
@@ -334,17 +433,23 @@ exports.main = async (event) => {
     }
   }
 
-  await db.collection(COLLECTIONS.powerRecords).add({
-    data: {
-      ...record,
-      type,
-      source: 'queryPower',
-    },
-  })
-  await updateMeter(db, record, type)
+  try {
+    await db.collection(COLLECTIONS.powerRecords).add({
+      data: {
+        ...record,
+        type,
+        source: 'queryPower',
+      },
+    })
+    await updateMeter(db, record, type)
+  } finally {
+    await releaseManualQueryLock(db, config, type, queriedAt)
+  }
 
   return record
 }
 
 exports.isDuplicateKeyError = isDuplicateKeyError
+exports.claimManualQuery = claimManualQuery
+exports.releaseManualQueryLock = releaseManualQueryLock
 exports.updateMeter = updateMeter
