@@ -148,3 +148,16 @@ page {
   font-size: 26rpx;
   line-height: 1.5;
 }
+
+.footer-links {
+  margin-top: 24rpx;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.privacy-link {
+  color: #7b8782;
+  font-size: 24rpx;
+  line-height: 1.4;
+  padding: 8rpx 0;
+}

@@ -239,7 +239,7 @@ function calculateScheduleState(input) {
     if (elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS && observedDailyUsage > 0) {
       estimatedDailyUsageKwh = Math.max(
         MIN_ESTIMATED_DAILY_USAGE_KWH,
-        previousEstimate * 0.7 + observedDailyUsage * 0.3,
+        previousEstimate * 0.8 + observedDailyUsage * 0.2,
       )
     }
   }

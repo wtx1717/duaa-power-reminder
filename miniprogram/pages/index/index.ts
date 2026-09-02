@@ -48,7 +48,7 @@ function formatPowerResult(result: QueryPowerResult): string {
   const remaining = result.remainingKwh === undefined
     ? '未知'
     : `${result.remainingKwh} kWh`
-  const cutoff = result.cutoffTime ? `，截止 ${result.cutoffTime}` : ''
+  const cutoff = result.cutoffTime ? `， ${result.cutoffTime}` : ''
   return `剩余 ${remaining}${cutoff}`
 }
 
@@ -201,7 +201,7 @@ Page({
 
       this.setData({
         openid: result.openid,
-        openidText: `已登录 ${maskOpenid(result.openid)}`,
+        openidText: `已登录 `,
         lightMeterId,
         acMeterId,
         email,
