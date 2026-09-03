@@ -75,8 +75,44 @@ page {
   font-size: 30rpx;
 }
 
+.picker {
+  width: 100%;
+}
+
+.picker-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88rpx;
+  padding: 24rpx;
+  border: 1rpx solid #d9e0dd;
+  border-radius: 8rpx;
+  background: #fff;
+  color: #17211c;
+  font-size: 30rpx;
+  line-height: 1.35;
+}
+
+.readonly-input {
+  color: #66736d;
+  background: #eef2f0;
+}
+
 .placeholder {
   color: #9aa5a0;
+}
+
+.meter-hint {
+  margin-top: 10rpx;
+  color: #66736d;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.mapping-message {
+  margin: -6rpx 0 28rpx;
+  color: #52615a;
+  font-size: 25rpx;
+  line-height: 1.5;
 }
 
 .hint {

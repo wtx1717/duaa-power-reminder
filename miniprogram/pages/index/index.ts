@@ -1,5 +1,15 @@
 import { clearAuthenticated, hasAuthenticated, loginWithWechat } from '../../services/auth'
 import { queryPower, savePowerConfig, unbindPowerConfig } from '../../services/meter'
+import {
+  findDormitoryByMeterIds,
+  getBuildings,
+  getCampuses,
+  getFloors,
+  getRoomMeters,
+  getRooms,
+  type DormitoryLocation,
+  type DormitoryMatch,
+} from '../../utils/dormitory-map'
 import type {
   MeterPowerView,
   QueryPowerResult,
@@ -13,8 +23,18 @@ type InputEvent = {
   }
 }
 
+type PickerEvent = {
+  detail: {
+    value: string | number
+  }
+}
+
 const QUERY_BUTTON_COOLDOWN_MS = 3000
 const QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
+const CAMPUS_PLACEHOLDER = '请选择校区'
+const BUILDING_PLACEHOLDER = '请选择楼栋'
+const FLOOR_PLACEHOLDER = '请选择楼层'
+const ROOM_PLACEHOLDER = '请选择房间'
 
 // function maskOpenid(openid: string): string {
 //   if (openid.length <= 8) {
@@ -55,6 +75,124 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
+function addPlaceholder(values: string[], placeholder: string): string[] {
+  return [placeholder, ...values]
+}
+
+function createUnselectedMeterPatch(message = '') {
+  return {
+    lightMeterId: '',
+    acMeterId: '',
+    lightMeterNo: '',
+    acMeterNo: '',
+    lightMeterAddress: '',
+    acMeterAddress: '',
+    lightMeterEditable: true,
+    acMeterEditable: true,
+    mappingMessage: message,
+    lightPower: createMeterView('照明'),
+    acPower: createMeterView('空调'),
+  }
+}
+
+function createEmptySelectorState() {
+  return {
+    campusOptions: addPlaceholder(getCampuses(), CAMPUS_PLACEHOLDER),
+    campusIndex: 0,
+    buildingOptions: [BUILDING_PLACEHOLDER],
+    buildingIndex: 0,
+    floorOptions: [FLOOR_PLACEHOLDER],
+    floorIndex: 0,
+    roomOptions: [ROOM_PLACEHOLDER],
+    roomIndex: 0,
+    ...createUnselectedMeterPatch(),
+  }
+}
+
+function getPickerIndex(options: string[], value: string): number {
+  const index = options.indexOf(value)
+  return index >= 0 ? index : 0
+}
+
+function createSelectionPatch(
+  location: DormitoryLocation,
+  preservedLightMeterId = '',
+  preservedAcMeterId = '',
+) {
+  const buildings = getBuildings(location.campus)
+  const floors = getFloors(location.campus, location.building)
+  const rooms = getRooms(location.campus, location.building, location.floor)
+  const meters = getRoomMeters(location)
+  const lightMeterId = (meters.light ? meters.light.meterId : '') || preservedLightMeterId
+  const acMeterId = (meters.ac ? meters.ac.meterId : '') || preservedAcMeterId
+  const mappingMessage = meters.light && meters.ac
+    ? '已自动匹配照明和空调电表'
+    : meters.light
+      ? '已匹配照明电表，空调电表需要手动填写'
+      : meters.ac
+        ? '已匹配空调电表，照明电表需要手动填写'
+        : '该房间没有自动匹配的电表，请手动填写'
+
+  return {
+    campusIndex: getPickerIndex(
+      addPlaceholder(getCampuses(), CAMPUS_PLACEHOLDER),
+      location.campus,
+    ),
+    buildingOptions: addPlaceholder(buildings, BUILDING_PLACEHOLDER),
+    buildingIndex: getPickerIndex(
+      addPlaceholder(buildings, BUILDING_PLACEHOLDER),
+      location.building,
+    ),
+    floorOptions: addPlaceholder(floors, FLOOR_PLACEHOLDER),
+    floorIndex: getPickerIndex(
+      addPlaceholder(floors, FLOOR_PLACEHOLDER),
+      location.floor,
+    ),
+    roomOptions: addPlaceholder(rooms, ROOM_PLACEHOLDER),
+    roomIndex: getPickerIndex(
+      addPlaceholder(rooms, ROOM_PLACEHOLDER),
+      location.room,
+    ),
+    lightMeterId,
+    acMeterId,
+    lightMeterNo: meters.light ? meters.light.meterNo : '',
+    acMeterNo: meters.ac ? meters.ac.meterNo : '',
+    lightMeterAddress: meters.light ? meters.light.address : '',
+    acMeterAddress: meters.ac ? meters.ac.address : '',
+    lightMeterEditable: !meters.light,
+    acMeterEditable: !meters.ac,
+    mappingMessage,
+    lightPower: createMeterView('照明', lightMeterId),
+    acPower: createMeterView('空调', acMeterId),
+  }
+}
+
+function createManualConfigPatch(lightMeterId: string, acMeterId: string) {
+  return {
+    ...createEmptySelectorState(),
+    lightMeterId,
+    acMeterId,
+    mappingMessage: lightMeterId || acMeterId
+      ? '未能从本地宿舍映射恢复，请核对电表号'
+      : '',
+    lightPower: createMeterView('照明', lightMeterId),
+    acPower: createMeterView('空调', acMeterId),
+  }
+}
+
+function createLoginSelectionPatch(
+  lightMeterId: string,
+  acMeterId: string,
+): ReturnType<typeof createSelectionPatch> | ReturnType<typeof createManualConfigPatch> {
+  const match: DormitoryMatch | undefined = findDormitoryByMeterIds(lightMeterId, acMeterId)
+
+  if (!match) {
+    return createManualConfigPatch(lightMeterId, acMeterId)
+  }
+
+  return createSelectionPatch(match, lightMeterId, acMeterId)
+}
+
 function showConfirmModal(content: string): Promise<boolean> {
   return new Promise((resolve) => {
     wx.showModal({
@@ -76,14 +214,11 @@ function resetUnboundState() {
   return {
     openid: '',
     openidText: '体验模式',
-    lightMeterId: '',
-    acMeterId: '',
     email: '',
     message: '',
-    lightPower: createMeterView('照明'),
-    acPower: createMeterView('空调'),
     isAuthenticated: false,
     queryCooldownUntil: 0,
+    ...createEmptySelectorState(),
   }
 }
 
@@ -140,17 +275,14 @@ Page({
   data: {
     openid: '',
     openidText: '体验模式',
-    lightMeterId: '',
-    acMeterId: '',
     email: '',
     loading: true,
     saving: false,
     queryingAll: false,
     message: '',
-    lightPower: createMeterView('照明'),
-    acPower: createMeterView('空调'),
     isAuthenticated: false,
     queryCooldownUntil: 0,
+    ...createEmptySelectorState(),
   },
 
   async onLoad() {
@@ -187,16 +319,14 @@ Page({
       const lightMeterId = config ? config.lightMeterId : ''
       const acMeterId = config ? config.acMeterId : ''
       const email = config && config.email ? config.email : ''
+      const selectionPatch = createLoginSelectionPatch(lightMeterId, acMeterId)
 
       this.setData({
         openid: result.openid,
         openidText: '已登录',
-        lightMeterId,
-        acMeterId,
         email,
         isAuthenticated: true,
-        lightPower: createMeterView('照明', lightMeterId),
-        acPower: createMeterView('空调', acMeterId),
+        ...selectionPatch,
       })
     } catch (error) {
       this.setData({
@@ -238,10 +368,137 @@ Page({
     return false
   },
 
+  onCampusChange(event: PickerEvent) {
+    const campusIndex = Number(event.detail.value)
+    const campus = this.data.campusOptions[campusIndex]
+
+    if (!campus || campusIndex === 0) {
+      this.setData({
+        campusIndex: 0,
+        buildingOptions: [BUILDING_PLACEHOLDER],
+        buildingIndex: 0,
+        floorOptions: [FLOOR_PLACEHOLDER],
+        floorIndex: 0,
+        roomOptions: [ROOM_PLACEHOLDER],
+        roomIndex: 0,
+        ...createUnselectedMeterPatch(),
+      })
+      return
+    }
+
+    this.setData({
+      campusIndex,
+      buildingOptions: addPlaceholder(getBuildings(campus), BUILDING_PLACEHOLDER),
+      buildingIndex: 0,
+      floorOptions: [FLOOR_PLACEHOLDER],
+      floorIndex: 0,
+      roomOptions: [ROOM_PLACEHOLDER],
+      roomIndex: 0,
+      ...createUnselectedMeterPatch(),
+    })
+  },
+
+  onBuildingChange(event: PickerEvent) {
+    const campus = this.data.campusOptions[this.data.campusIndex]
+    const buildingIndex = Number(event.detail.value)
+    const building = this.data.buildingOptions[buildingIndex]
+
+    if (!campus || this.data.campusIndex === 0 || !building || buildingIndex === 0) {
+      this.setData({
+        buildingIndex: 0,
+        floorOptions: [FLOOR_PLACEHOLDER],
+        floorIndex: 0,
+        roomOptions: [ROOM_PLACEHOLDER],
+        roomIndex: 0,
+        ...createUnselectedMeterPatch(),
+      })
+      return
+    }
+
+    this.setData({
+      buildingIndex,
+      floorOptions: addPlaceholder(getFloors(campus, building), FLOOR_PLACEHOLDER),
+      floorIndex: 0,
+      roomOptions: [ROOM_PLACEHOLDER],
+      roomIndex: 0,
+      ...createUnselectedMeterPatch(),
+    })
+  },
+
+  onFloorChange(event: PickerEvent) {
+    const campus = this.data.campusOptions[this.data.campusIndex]
+    const building = this.data.buildingOptions[this.data.buildingIndex]
+    const floorIndex = Number(event.detail.value)
+    const floor = this.data.floorOptions[floorIndex]
+
+    if (
+      !campus
+      || this.data.campusIndex === 0
+      || !building
+      || this.data.buildingIndex === 0
+      || !floor
+      || floorIndex === 0
+    ) {
+      this.setData({
+        floorIndex: 0,
+        roomOptions: [ROOM_PLACEHOLDER],
+        roomIndex: 0,
+        ...createUnselectedMeterPatch(),
+      })
+      return
+    }
+
+    this.setData({
+      floorIndex,
+      roomOptions: addPlaceholder(getRooms(campus, building, floor), ROOM_PLACEHOLDER),
+      roomIndex: 0,
+      ...createUnselectedMeterPatch(),
+    })
+  },
+
+  onRoomChange(event: PickerEvent) {
+    const campus = this.data.campusOptions[this.data.campusIndex]
+    const building = this.data.buildingOptions[this.data.buildingIndex]
+    const floor = this.data.floorOptions[this.data.floorIndex]
+    const roomIndex = Number(event.detail.value)
+    const room = this.data.roomOptions[roomIndex]
+
+    if (
+      !campus
+      || this.data.campusIndex === 0
+      || !building
+      || this.data.buildingIndex === 0
+      || !floor
+      || this.data.floorIndex === 0
+      || !room
+      || roomIndex === 0
+    ) {
+      this.setData({
+        roomIndex: 0,
+        ...createUnselectedMeterPatch(),
+      })
+      return
+    }
+
+    const location: DormitoryLocation = {
+      campus,
+      building,
+      floor,
+      room,
+    }
+
+    this.setData({
+      ...createSelectionPatch(location),
+      roomIndex,
+    })
+  },
+
   onLightMeterInput(event: InputEvent) {
     const lightMeterId = event.detail.value.trim()
     this.setData({
       lightMeterId,
+      lightMeterNo: '',
+      lightMeterAddress: '',
       lightPower: createMeterView('照明', lightMeterId),
     })
   },
@@ -250,6 +507,8 @@ Page({
     const acMeterId = event.detail.value.trim()
     this.setData({
       acMeterId,
+      acMeterNo: '',
+      acMeterAddress: '',
       acPower: createMeterView('空调', acMeterId),
     })
   },
@@ -270,14 +529,14 @@ Page({
 
     if (!payload.lightMeterId) {
       if (!silent) {
-        this.setData({ message: '请填写宿舍照明电表号' })
+        this.setData({ message: '请选择宿舍，或填写宿舍照明电表号' })
       }
       return undefined
     }
 
     if (!payload.acMeterId) {
       if (!silent) {
-        this.setData({ message: '请填写宿舍空调电表号' })
+        this.setData({ message: '请选择宿舍，或填写宿舍空调电表号' })
       }
       return undefined
     }

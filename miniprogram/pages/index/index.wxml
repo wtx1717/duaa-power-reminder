@@ -8,25 +8,100 @@
 
   <view class="form">
     <view class="field">
+      <text class="label">宿舍位置</text>
+      <picker
+        class="picker"
+        mode="selector"
+        range="{{campusOptions}}"
+        value="{{campusIndex}}"
+        bindchange="onCampusChange"
+      >
+        <view class="picker-input {{campusIndex === 0 ? 'placeholder' : ''}}">
+          {{campusOptions[campusIndex]}}
+        </view>
+      </picker>
+    </view>
+
+    <view class="field">
+      <text class="label">楼栋</text>
+      <picker
+        class="picker"
+        mode="selector"
+        range="{{buildingOptions}}"
+        value="{{buildingIndex}}"
+        disabled="{{campusIndex === 0}}"
+        bindchange="onBuildingChange"
+      >
+        <view class="picker-input {{buildingIndex === 0 ? 'placeholder' : ''}}">
+          {{buildingOptions[buildingIndex]}}
+        </view>
+      </picker>
+    </view>
+
+    <view class="field">
+      <text class="label">楼层</text>
+      <picker
+        class="picker"
+        mode="selector"
+        range="{{floorOptions}}"
+        value="{{floorIndex}}"
+        disabled="{{buildingIndex === 0}}"
+        bindchange="onFloorChange"
+      >
+        <view class="picker-input {{floorIndex === 0 ? 'placeholder' : ''}}">
+          {{floorOptions[floorIndex]}}
+        </view>
+      </picker>
+    </view>
+
+    <view class="field">
+      <text class="label">房间</text>
+      <picker
+        class="picker"
+        mode="selector"
+        range="{{roomOptions}}"
+        value="{{roomIndex}}"
+        disabled="{{floorIndex === 0}}"
+        bindchange="onRoomChange"
+      >
+        <view class="picker-input {{roomIndex === 0 ? 'placeholder' : ''}}">
+          {{roomOptions[roomIndex]}}
+        </view>
+      </picker>
+    </view>
+
+    <view class="field">
       <text class="label">照明电表号</text>
       <input
-        class="input"
+        class="input {{lightMeterEditable ? '' : 'readonly-input'}}"
         value="{{lightMeterId}}"
-        placeholder="请输入宿舍照明电表号"
+        placeholder="自动匹配或手动填写照明电表号"
         placeholder-class="placeholder"
+        disabled="{{!lightMeterEditable}}"
         bindinput="onLightMeterInput"
       />
+      <view wx:if="{{lightMeterAddress || lightMeterNo}}" class="meter-hint">
+        {{lightMeterAddress}}{{lightMeterNo ? '，序列号 ' + lightMeterNo : ''}}
+      </view>
     </view>
 
     <view class="field">
       <text class="label">空调电表号</text>
       <input
-        class="input"
+        class="input {{acMeterEditable ? '' : 'readonly-input'}}"
         value="{{acMeterId}}"
-        placeholder="请输入宿舍空调电表号"
+        placeholder="自动匹配或手动填写空调电表号"
         placeholder-class="placeholder"
+        disabled="{{!acMeterEditable}}"
         bindinput="onAcMeterInput"
       />
+      <view wx:if="{{acMeterAddress || acMeterNo}}" class="meter-hint">
+        {{acMeterAddress}}{{acMeterNo ? '，序列号 ' + acMeterNo : ''}}
+      </view>
+    </view>
+
+    <view wx:if="{{mappingMessage}}" class="mapping-message">
+      {{mappingMessage}}
     </view>
 
     <view class="field">
