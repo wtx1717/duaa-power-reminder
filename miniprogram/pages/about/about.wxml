@@ -41,14 +41,31 @@
       <text class="link-text">{{email}}</text>
       <button class="copy-button" bindtap="onCopyEmail">复制邮箱</button>
     </view>
-  </view>
+  </view> 
 
-  <view class="section">
-    <view class="section-title">数据说明</view>
+  <view class="section appreciation-section">
+    <view class="section-title">我从没觉得敲代码开心过</view>
     <view class="section-text">
-      电量查询结果与提醒仅作为辅助参考，实际电费、电量和缴费状态以学校官方系统为准。
+      如果这个小程序帮你省了一点查电费的时间，欢迎请我喝杯咖啡 desuwa
     </view>
+    <button class="appreciation-button" bindtap="onShowAppreciationCode">查看赞赏码</button>
   </view>
 
-  <view class="version">版本 1.0.0</view>
+
+  <view class="version">版本 1.0.1</view>
 </scroll-view>
+
+<view wx:if="{{showAppreciationCode}}" class="modal-mask" catchtap="onHideAppreciationCode">
+  <view class="appreciation-modal" catchtap="noop">
+    <view class="modal-title">感谢支持</view>
+    <view class="modal-text">继续把功能做好 desuwa</view>
+    <image
+      class="appreciation-code"
+      src="{{appreciationCodeUrl}}"
+      mode="aspectFit"
+      show-menu-by-longpress="{{true}}"
+      bindtap="onPreviewAppreciationCode"
+    />
+    <button class="modal-close" bindtap="onHideAppreciationCode">关闭</button>
+  </view>
+</view>
