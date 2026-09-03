@@ -26,6 +26,28 @@ page {
   font-size: 26rpx;
 }
 
+.experience-intro {
+  box-sizing: border-box;
+  margin-bottom: 32rpx;
+  padding: 24rpx;
+  border-left: 6rpx solid #1f7a5a;
+  background: #eaf3ef;
+}
+
+.intro-title {
+  color: #17211c;
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.intro-text {
+  margin-top: 10rpx;
+  color: #52615a;
+  font-size: 25rpx;
+  line-height: 1.6;
+}
+
 .form {
   padding-bottom: 56rpx;
 }
@@ -84,6 +106,38 @@ page {
 .unbind-button {
   color: #fff;
   background: #b5452f;
+}
+
+.login-prompt {
+  box-sizing: border-box;
+  margin-top: 32rpx;
+  padding: 24rpx;
+  border: 1rpx solid #cfe2d9;
+  border-radius: 8rpx;
+  background: #f4faf7;
+  text-align: center;
+}
+
+.login-prompt-title {
+  color: #17211c;
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.login-prompt-text {
+  margin-top: 8rpx;
+  color: #66736d;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+.login-button {
+  width: 100%;
+  margin: 20rpx 0 0;
+  border-radius: 8rpx;
+  background: #1f7a5a;
+  font-size: 30rpx;
 }
 
 .result-list {

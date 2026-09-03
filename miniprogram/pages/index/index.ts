@@ -75,14 +75,14 @@ function showConfirmModal(content: string): Promise<boolean> {
 function resetUnboundState() {
   return {
     openid: '',
-    openidText: '未登录',
+    openidText: '体验模式',
     lightMeterId: '',
     acMeterId: '',
     email: '',
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
-    redirectingToLogin: true,
+    isAuthenticated: false,
     queryCooldownUntil: 0,
   }
 }
@@ -139,7 +139,7 @@ function formatUnbindError(error: unknown): string {
 Page({
   data: {
     openid: '',
-    openidText: '未登录',
+    openidText: '体验模式',
     lightMeterId: '',
     acMeterId: '',
     email: '',
@@ -149,15 +149,15 @@ Page({
     message: '',
     lightPower: createMeterView('照明'),
     acPower: createMeterView('空调'),
-    redirectingToLogin: false,
+    isAuthenticated: false,
     queryCooldownUntil: 0,
   },
 
   async onLoad() {
     if (!hasAuthenticated()) {
-      this.setData({ redirectingToLogin: true })
-      wx.redirectTo({
-        url: '/pages/login/login',
+      this.setData({
+        loading: false,
+        isAuthenticated: false,
       })
       return
     }
@@ -166,14 +166,11 @@ Page({
   },
 
   onShow() {
-    if (hasAuthenticated() || this.data.redirectingToLogin) {
+    if (!hasAuthenticated() || this.data.isAuthenticated || this.data.loading) {
       return
     }
 
-    this.setData({ redirectingToLogin: true })
-    wx.redirectTo({
-      url: '/pages/login/login',
-    })
+    this.login()
   },
 
   async login() {
@@ -193,10 +190,11 @@ Page({
 
       this.setData({
         openid: result.openid,
-        openidText: `已登录 `,
+        openidText: '已登录',
         lightMeterId,
         acMeterId,
         email,
+        isAuthenticated: true,
         lightPower: createMeterView('照明', lightMeterId),
         acPower: createMeterView('空调', acMeterId),
       })
@@ -209,6 +207,35 @@ Page({
         loading: false,
       })
     }
+  },
+
+  onAuthorizeLogin() {
+    if (this.data.loading || this.data.isAuthenticated) {
+      return
+    }
+
+    wx.navigateTo({
+      url: '/pages/login/login',
+    })
+  },
+
+  requireLogin(): boolean {
+    if (hasAuthenticated()) {
+      return true
+    }
+
+    wx.showModal({
+      title: '需要登录',
+      content: '保存配置和查询电量需要登录，请先授权登录。',
+      confirmText: '去登录',
+      success: (result) => {
+        if (result.confirm) {
+          this.onAuthorizeLogin()
+        }
+      },
+    })
+
+    return false
   },
 
   onLightMeterInput(event: InputEvent) {
@@ -280,6 +307,10 @@ Page({
   },
 
   async onSaveConfig() {
+    if (!this.requireLogin()) {
+      return
+    }
+
     const initialPayload = this.buildSavePayload()
 
     if (!initialPayload) {
@@ -326,6 +357,10 @@ Page({
   },
 
   async onQueryPower() {
+    if (!this.requireLogin()) {
+      return
+    }
+
     const now = Date.now()
 
     if (this.data.queryingAll || this.data.queryCooldownUntil > now) {
@@ -385,6 +420,10 @@ Page({
   },
 
   async onUnbindAndLogout() {
+    if (!this.requireLogin()) {
+      return
+    }
+
     if (this.data.loading || this.data.saving || this.data.queryingAll) {
       return
     }
@@ -420,7 +459,7 @@ Page({
       })
 
       wx.reLaunch({
-        url: '/pages/login/login',
+        url: '/pages/index/index',
       })
     } catch (error) {
       this.setData({

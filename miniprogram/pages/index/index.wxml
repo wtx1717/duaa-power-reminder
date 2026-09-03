@@ -61,6 +61,7 @@
     </button>
 
     <button
+      wx:if="{{isAuthenticated}}"
       class="unbind-button"
       loading="{{loading}}"
       disabled="{{loading || saving || queryingAll}}"
@@ -98,6 +99,21 @@
     </view>
 
     <view wx:if="{{message}}" class="message">{{message}}</view>
+
+    <view class="login-prompt">
+      <view class="login-prompt-title">{{isAuthenticated ? '已完成授权登录' : ''}}</view>
+      <view wx:if="{{!isAuthenticated}}" class="login-prompt-text">登录后可以保存电表配置、查询实时电量并接收低电量提醒。</view>
+      <button
+        wx:if="{{!isAuthenticated}}"
+        class="login-button"
+        type="primary"
+        loading="{{loading}}"
+        disabled="{{loading}}"
+        bindtap="onAuthorizeLogin"
+      >
+        授权登录
+      </button>
+    </view>
 
     <view class="footer-links">
       <navigator class="privacy-link" open-type="openPrivacyContract">隐私政策</navigator>

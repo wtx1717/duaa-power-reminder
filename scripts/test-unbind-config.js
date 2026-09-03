@@ -294,9 +294,13 @@ function testFrontendFlow() {
 
   assert(template.includes('解绑并退出登录'))
   assert(template.includes('bindtap="onUnbindAndLogout"'))
+  assert(template.includes('体验完整服务后再决定是否登录'))
+  assert(template.includes('bindtap="onAuthorizeLogin"'))
   assert(pageSource.includes('解绑后将删除当前电表和邮箱配置，关闭低电量提醒，并退出当前账号。历史查询记录和提醒记录会保留。确定继续吗？'))
   assert(pageSource.includes('if (!confirmed)'))
-  assert(/wx\.reLaunch\(\{\s*url: '\/pages\/login\/login'/.test(pageSource))
+  assert(/wx\.reLaunch\(\{\s*url: '\/pages\/index\/index'/.test(pageSource))
+  assert(!/if \(!hasAuthenticated\(\)[\s\S]*?wx\.redirectTo\(\{\s*url: '\/pages\/login\/login'/.test(pageSource))
+  assert(pageSource.includes('保存配置和查询电量需要登录，请先授权登录。'))
   assert(pageSource.includes('clearAuthenticated()'))
 }
 
