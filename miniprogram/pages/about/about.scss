@@ -114,22 +114,6 @@ page {
   word-break: break-all;
 }
 
-.copy-button {
-  flex: 0 0 auto;
-  min-width: 156rpx;
-  margin: 0;
-  padding: 0 24rpx;
-  border-radius: 8rpx;
-  background: #1f7a5a;
-  color: #fff;
-  font-size: 26rpx;
-  line-height: 68rpx;
-}
-
-.copy-button::after {
-  border: 0;
-}
-
 .appreciation-section {
   border-color: #ead8a3;
   background: #fffdf7;

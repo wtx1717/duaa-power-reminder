@@ -332,6 +332,9 @@ function testFrontendFlow() {
 
   assert(aboutTemplate.includes('关于我们'))
   assert(aboutTemplate.includes('duaa 宿舍电量提醒'))
+  assert(aboutTemplate.includes('selectable="true"'))
+  assert(!aboutTemplate.includes('复制链接'))
+  assert(!aboutTemplate.includes('复制邮箱'))
 
   assert(loginSource.includes('wx.switchTab'))
   assert(loginSource.includes('/pages/settings/settings'))

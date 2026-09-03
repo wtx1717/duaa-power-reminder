@@ -27,8 +27,7 @@
       项目代码托管在 GitHub，欢迎通过仓库提交 issue 或改进建议。
     </view>
     <view class="link-box">
-      <text class="link-text">{{githubUrl}}</text>
-      <button class="copy-button" bindtap="onCopyGithub">复制链接</button>
+      <text class="link-text" selectable="true">{{githubUrl}}</text>
     </view>
   </view>
 
@@ -38,8 +37,7 @@
       如果遇到数据异常、提醒失败或宿舍信息匹配问题，可以通过邮箱联系。
     </view>
     <view class="link-box">
-      <text class="link-text">{{email}}</text>
-      <button class="copy-button" bindtap="onCopyEmail">复制邮箱</button>
+      <text class="link-text" selectable="true">{{email}}</text>
     </view>
   </view> 
 
