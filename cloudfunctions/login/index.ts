@@ -53,8 +53,8 @@ export async function main(): Promise<LoginResult> {
     openid: OPENID,
     config,
     meters: {
-      light: await getMeterById(config?.lightMeterId),
-      ac: await getMeterById(config?.acMeterId),
+      light: await getMeterById(config ? config.lightMeterId : undefined),
+      ac: await getMeterById(config ? config.acMeterId : undefined),
     },
   }
 }

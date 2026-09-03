@@ -100,8 +100,8 @@ export function createHomePowerState(
 ): HomePowerState {
   const lightMeterId = config ? config.lightMeterId : ''
   const acMeterId = config ? config.acMeterId : ''
-  const lightResult = createSnapshotResult(lightMeterId, meters?.light)
-  const acResult = createSnapshotResult(acMeterId, meters?.ac)
+  const lightResult = createSnapshotResult(lightMeterId, meters ? meters.light : undefined)
+  const acResult = createSnapshotResult(acMeterId, meters ? meters.ac : undefined)
 
   return {
     openidText: isAuthenticated ? '已登录' : '体验模式',

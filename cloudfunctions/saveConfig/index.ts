@@ -116,13 +116,14 @@ function buildExistingMeterData(
   type: Meter['type'],
   updatedAt: Date,
 ): Record<string, unknown> {
+  const estimatedDailyUsageKwh = current && Number.isFinite(Number(current.estimatedDailyUsageKwh))
+    ? Number(current.estimatedDailyUsageKwh)
+    : DEFAULT_ESTIMATED_DAILY_USAGE_KWH
   return {
     type,
     checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
-    estimatedDailyUsageKwh: Number.isFinite(Number(current?.estimatedDailyUsageKwh))
-      ? Number(current?.estimatedDailyUsageKwh)
-      : DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
-    scheduleMode: current?.scheduleMode || DEFAULT_SCHEDULE_MODE,
+    estimatedDailyUsageKwh,
+    scheduleMode: current && current.scheduleMode ? current.scheduleMode : DEFAULT_SCHEDULE_MODE,
     updatedAt,
   }
 }
@@ -158,7 +159,7 @@ export async function upsertMeter(
   const existing = await meters.where({ meterId }).get()
   const current = existing.data[0]
 
-  if (!current?._id) {
+  if (!current || !current._id) {
     throw new Error(`创建电表 ${meterId} 时检测到重复键，但未能读取已有记录`)
   }
 
@@ -188,7 +189,7 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
     reminderEnabled: input.reminderEnabled,
   }
 
-  if (current?._id) {
+  if (current && current._id) {
     const remove = db.command.remove()
     await userConfigs.doc(current._id).update({
       data: {
