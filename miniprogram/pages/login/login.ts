@@ -1,4 +1,5 @@
 import {
+  clearAuthenticated,
   hasAuthenticated,
   loginWithWechat,
   markAuthenticated,
@@ -75,6 +76,7 @@ Page({
         url: '/pages/settings/settings',
       })
     } catch (error) {
+      clearAuthenticated()
       this.setData({
         message: error instanceof Error ? error.message : '登录失败，请重试',
       })

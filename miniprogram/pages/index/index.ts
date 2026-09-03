@@ -1,6 +1,10 @@
 import { hasAuthenticated, loginWithWechat } from '../../services/auth'
+import {
+  getCachedLoginResult,
+  isCachedLoginResultFresh,
+} from '../../services/config-cache'
 import { queryPower } from '../../services/meter'
-import type { QueryPowerResult } from '../../types/domain'
+import type { LoginResult, QueryPowerResult } from '../../types/domain'
 import {
   createHomePowerState,
   createMeterView,
@@ -9,6 +13,7 @@ import {
 
 const QUERY_BUTTON_COOLDOWN_MS = 3000
 const QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
+const LOGIN_CACHE_MAX_AGE_MS = 5 * 60 * 1000
 
 function setGlobalHomePowerState(state: HomePowerState): void {
   const app = getApp<IAppOption>()
@@ -31,11 +36,23 @@ Page({
     queryingAll: false,
     message: '',
     queryCooldownUntil: 0,
+    refreshingLogin: false,
   },
 
   onLoad() {
     if (!hasAuthenticated()) {
       this.setData({ loading: false })
+      return
+    }
+
+    const cached = getCachedLoginResult()
+    if (cached) {
+      this.applyLoginResult(cached)
+
+      if (!isCachedLoginResultFresh(LOGIN_CACHE_MAX_AGE_MS)) {
+        this.login({ silent: true })
+      }
+
       return
     }
 
@@ -65,41 +82,71 @@ Page({
       return
     }
 
+    const cached = getCachedLoginResult()
+    if (cached) {
+      this.applyLoginResult(cached)
+      return
+    }
+
     if (!this.data.isAuthenticated && !this.data.loading) {
       this.login()
     }
   },
 
-  async login() {
+  applyLoginResult(result: LoginResult) {
+    const config = result.config
+    const state = createHomePowerState(
+      config
+        ? {
+            lightMeterId: config.lightMeterId,
+            acMeterId: config.acMeterId,
+          }
+        : undefined,
+      result.meters,
+      true,
+    )
+
+    const app = getApp<IAppOption>()
+    app.globalData.openid = result.openid
+    setGlobalHomePowerState(state)
     this.setData({
-      loading: true,
-      message: '',
+      loading: false,
+      ...state,
     })
+  },
+
+  async login(options: { silent?: boolean } = {}) {
+    if (options.silent && (this.data.loading || this.data.refreshingLogin)) {
+      return
+    }
+
+    if (!options.silent) {
+      this.setData({
+        loading: true,
+        message: '',
+      })
+    } else {
+      this.setData({
+        message: '',
+        refreshingLogin: true,
+      })
+    }
 
     try {
       const result = await loginWithWechat()
-      const config = result.config
-      const state = createHomePowerState(
-        config
-          ? {
-              lightMeterId: config.lightMeterId,
-              acMeterId: config.acMeterId,
-            }
-          : undefined,
-        result.meters,
-        true,
-      )
-
-      const app = getApp<IAppOption>()
-      app.globalData.openid = result.openid
-      setGlobalHomePowerState(state)
-      this.setData(state)
+      this.applyLoginResult(result)
     } catch (error) {
-      this.setData({
-        message: error instanceof Error ? error.message : '登录失败，请稍后重试',
-      })
+      if (!options.silent) {
+        this.setData({
+          message: error instanceof Error ? error.message : '登录失败，请稍后重试',
+        })
+      }
     } finally {
-      this.setData({ loading: false })
+      if (!options.silent) {
+        this.setData({ loading: false })
+      } else {
+        this.setData({ refreshingLogin: false })
+      }
     }
   },
 

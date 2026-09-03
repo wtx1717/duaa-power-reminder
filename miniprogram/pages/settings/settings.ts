@@ -1,6 +1,11 @@
 import { clearAuthenticated, hasAuthenticated, loginWithWechat } from '../../services/auth'
+import {
+  getCachedLoginResult,
+  isCachedLoginResultFresh,
+  setCachedPowerConfig,
+} from '../../services/config-cache'
 import { savePowerConfig, unbindPowerConfig } from '../../services/meter'
-import type { SaveConfigPayload, UnbindConfigResult } from '../../types/domain'
+import type { LoginResult, SaveConfigPayload, UnbindConfigResult } from '../../types/domain'
 import {
   BUILDING_PLACEHOLDER,
   FLOOR_PLACEHOLDER,
@@ -21,6 +26,8 @@ import {
   getRooms,
   type DormitoryLocation,
 } from '../../utils/dormitory-map'
+
+const LOGIN_CACHE_MAX_AGE_MS = 5 * 60 * 1000
 
 function showConfirmModal(content: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -89,6 +96,8 @@ function resetUnboundState() {
     saving: false,
     message: '',
     isAuthenticated: false,
+    formDirty: false,
+    refreshingLogin: false,
     ...createEmptySelectorState(),
   }
 }
@@ -102,6 +111,8 @@ Page({
     saving: false,
     message: '',
     isAuthenticated: false,
+    formDirty: false,
+    refreshingLogin: false,
     ...createEmptySelectorState(),
   },
 
@@ -117,6 +128,22 @@ Page({
       return
     }
 
+    const cached = getCachedLoginResult()
+    if (cached) {
+      this.applyLoginResult(cached)
+
+      if (
+        isCachedLoginResultFresh(LOGIN_CACHE_MAX_AGE_MS)
+        || this.data.loading
+        || this.data.refreshingLogin
+      ) {
+        return
+      }
+
+      this.login({ silent: true })
+      return
+    }
+
     if (this.data.loading) {
       return
     }
@@ -124,43 +151,69 @@ Page({
     this.login()
   },
 
-  async login() {
+  applyLoginResult(result: LoginResult) {
+    const config = result.config
+    const lightMeterId = config ? config.lightMeterId : ''
+    const acMeterId = config ? config.acMeterId : ''
+    const email = config && config.email ? config.email : ''
+    const selectionPatch = createLoginSelectionPatch(lightMeterId, acMeterId)
+    const app = getApp<IAppOption>()
+
+    app.globalData.openid = result.openid
+    app.globalData.homePowerState = createHomePowerState(
+      config
+        ? { lightMeterId: config.lightMeterId, acMeterId: config.acMeterId }
+        : undefined,
+      result.meters,
+      true,
+    )
+
     this.setData({
-      loading: true,
-      message: '',
+      openid: result.openid,
+      openidText: '已登录',
+      email,
+      isAuthenticated: true,
+      formDirty: false,
+      ...selectionPatch,
     })
+  },
+
+  async login(options: { silent?: boolean } = {}) {
+    if (options.silent && (this.data.loading || this.data.refreshingLogin)) {
+      return
+    }
+
+    if (!options.silent) {
+      this.setData({
+        loading: true,
+        message: '',
+      })
+    } else {
+      this.setData({
+        message: '',
+        refreshingLogin: true,
+      })
+    }
 
     try {
       const result = await loginWithWechat()
-      const config = result.config
-      const lightMeterId = config ? config.lightMeterId : ''
-      const acMeterId = config ? config.acMeterId : ''
-      const email = config && config.email ? config.email : ''
-      const selectionPatch = createLoginSelectionPatch(lightMeterId, acMeterId)
-      const app = getApp<IAppOption>()
+      if (options.silent && this.data.formDirty) {
+        return
+      }
 
-      app.globalData.openid = result.openid
-      app.globalData.homePowerState = createHomePowerState(
-        config
-          ? { lightMeterId: config.lightMeterId, acMeterId: config.acMeterId }
-          : undefined,
-        result.meters,
-        true,
-      )
-
-      this.setData({
-        openid: result.openid,
-        openidText: '已登录',
-        email,
-        isAuthenticated: true,
-        ...selectionPatch,
-      })
+      this.applyLoginResult(result)
     } catch (error) {
-      this.setData({
-        message: error instanceof Error ? error.message : '登录失败，请稍后重试',
-      })
+      if (!options.silent) {
+        this.setData({
+          message: error instanceof Error ? error.message : '登录失败，请稍后重试',
+        })
+      }
     } finally {
-      this.setData({ loading: false })
+      if (!options.silent) {
+        this.setData({ loading: false })
+      } else {
+        this.setData({ refreshingLogin: false })
+      }
     }
   },
 
@@ -200,6 +253,7 @@ Page({
     if (!campus || campusIndex === 0) {
       this.setData({
         campusIndex: 0,
+        formDirty: true,
         buildingOptions: [BUILDING_PLACEHOLDER],
         buildingIndex: 0,
         floorOptions: [FLOOR_PLACEHOLDER],
@@ -213,6 +267,7 @@ Page({
 
     this.setData({
       campusIndex,
+      formDirty: true,
       buildingOptions: [BUILDING_PLACEHOLDER, ...getBuildings(campus)],
       buildingIndex: 0,
       floorOptions: [FLOOR_PLACEHOLDER],
@@ -231,6 +286,7 @@ Page({
     if (!campus || this.data.campusIndex === 0 || !building || buildingIndex === 0) {
       this.setData({
         buildingIndex: 0,
+        formDirty: true,
         floorOptions: [FLOOR_PLACEHOLDER],
         floorIndex: 0,
         roomOptions: [ROOM_PLACEHOLDER],
@@ -242,6 +298,7 @@ Page({
 
     this.setData({
       buildingIndex,
+      formDirty: true,
       floorOptions: [FLOOR_PLACEHOLDER, ...getFloors(campus, building)],
       floorIndex: 0,
       roomOptions: [ROOM_PLACEHOLDER],
@@ -266,6 +323,7 @@ Page({
     ) {
       this.setData({
         floorIndex: 0,
+        formDirty: true,
         roomOptions: [ROOM_PLACEHOLDER],
         roomIndex: 0,
         ...createUnselectedMeterPatch(),
@@ -275,6 +333,7 @@ Page({
 
     this.setData({
       floorIndex,
+      formDirty: true,
       roomOptions: [ROOM_PLACEHOLDER, ...getRooms(campus, building, floor)],
       roomIndex: 0,
       ...createUnselectedMeterPatch(),
@@ -300,6 +359,7 @@ Page({
     ) {
       this.setData({
         roomIndex: 0,
+        formDirty: true,
         ...createUnselectedMeterPatch(),
       })
       return
@@ -315,6 +375,7 @@ Page({
     this.setData({
       ...createSelectionPatch(location),
       roomIndex,
+      formDirty: true,
     })
   },
 
@@ -322,6 +383,7 @@ Page({
     const lightMeterId = event.detail.value.trim()
     this.setData({
       lightMeterId,
+      formDirty: true,
       lightMeterNo: '',
       lightMeterAddress: '',
       lightPower: createMeterView('照明', lightMeterId),
@@ -332,6 +394,7 @@ Page({
     const acMeterId = event.detail.value.trim()
     this.setData({
       acMeterId,
+      formDirty: true,
       acMeterNo: '',
       acMeterAddress: '',
       acPower: createMeterView('空调', acMeterId),
@@ -341,6 +404,7 @@ Page({
   onEmailInput(event: InputEvent) {
     this.setData({
       email: event.detail.value.trim(),
+      formDirty: true,
     })
   },
 
@@ -417,6 +481,17 @@ Page({
       }
 
       const app = getApp<IAppOption>()
+      const savedConfig = result.config || (app.globalData.openid
+        ? {
+            openid: app.globalData.openid,
+            ...payload,
+          }
+        : undefined)
+
+      if (savedConfig) {
+        setCachedPowerConfig(savedConfig)
+      }
+
       app.globalData.homePowerState = createHomePowerState(
         {
           lightMeterId: payload.lightMeterId,
@@ -428,6 +503,7 @@ Page({
 
       this.setData({
         message: '配置已保存，低电量提醒将发送到邮箱',
+        formDirty: false,
         lightPower: createMeterView('照明', payload.lightMeterId),
         acPower: createMeterView('空调', payload.acMeterId),
       })

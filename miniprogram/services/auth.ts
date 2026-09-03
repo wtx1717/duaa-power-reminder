@@ -1,10 +1,12 @@
 import { callCloudFunction } from './api'
+import { clearCachedLoginResult, setCachedLoginResult } from './config-cache'
 import type { LoginResult } from '../types/domain'
 
 export const AUTHENTICATED_STORAGE_KEY = 'duaa-authenticated'
 
 export function clearAuthenticated(): void {
   wx.removeStorageSync(AUTHENTICATED_STORAGE_KEY)
+  clearCachedLoginResult()
 }
 
 export function hasAuthenticated(): boolean {
@@ -16,8 +18,10 @@ export function markAuthenticated(): void {
 }
 
 export async function loginWithWechat(): Promise<LoginResult> {
-  return callCloudFunction<Record<string, never>, LoginResult>({
+  const result = await callCloudFunction<Record<string, never>, LoginResult>({
     name: 'login',
     data: {},
   })
+  setCachedLoginResult(result)
+  return result
 }
