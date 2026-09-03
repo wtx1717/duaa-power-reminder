@@ -141,17 +141,26 @@ page {
 }
 
 .footer-links {
-  margin-top: 24rpx;
   display: flex;
-  justify-content: flex-end;
-  gap: 24rpx;
+  justify-content: center;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 40rpx;
+  padding-top: 32rpx;
+  border-top: 1rpx solid #e3e9e6;
 }
 
 .footer-link {
-  color: #7b8782;
-  font-size: 24rpx;
+  box-sizing: border-box;
+  min-width: 200rpx;
+  padding: 16rpx 32rpx;
+  border: 1rpx solid #d9e0dd;
+  border-radius: 8rpx;
+  background: #fff;
+  color: #52615a;
+  font-size: 26rpx;
   line-height: 1.4;
-  padding: 8rpx 0;
+  text-align: center;
 }
 
 .message {

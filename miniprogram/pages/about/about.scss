@@ -5,7 +5,27 @@ page {
 }
 
 .page {
-  padding: 32rpx;
+  box-sizing: border-box;
+  height: 100vh;
+  padding: 32rpx 32rpx 72rpx;
+}
+
+.header {
+  margin-bottom: 32rpx;
+  padding-bottom: 28rpx;
+  border-bottom: 1rpx solid #e3e9e6;
+}
+
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 12rpx;
+  padding: 6rpx 14rpx;
+  border: 1rpx solid #cfe2d9;
+  border-radius: 8rpx;
+  background: #f4faf7;
+  color: #1f7a5a;
+  font-size: 24rpx;
+  line-height: 1.4;
 }
 
 .title {
@@ -14,9 +34,102 @@ page {
   line-height: 1.4;
 }
 
-.text {
-  margin-top: 16rpx;
+.subtitle,
+.section-text {
   color: #66736d;
   font-size: 28rpx;
   line-height: 1.6;
+}
+
+.subtitle {
+  margin-top: 12rpx;
+}
+
+.section {
+  box-sizing: border-box;
+  margin-bottom: 24rpx;
+  padding: 24rpx;
+  border: 1rpx solid #d9e0dd;
+  border-radius: 8rpx;
+  background: #fff;
+}
+
+.section-title {
+  margin-bottom: 16rpx;
+  color: #26332d;
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+  min-height: 56rpx;
+  padding: 8rpx 0;
+}
+
+.info-row + .info-row {
+  border-top: 1rpx solid #eef2f0;
+}
+
+.info-label {
+  color: #66736d;
+  font-size: 26rpx;
+  line-height: 1.5;
+}
+
+.info-value {
+  color: #17211c;
+  font-size: 28rpx;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.link-box {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.link-text {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  padding: 18rpx 20rpx;
+  border: 1rpx solid #d9e0dd;
+  border-radius: 8rpx;
+  background: #f8faf9;
+  color: #52615a;
+  font-size: 24rpx;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.copy-button {
+  flex: 0 0 auto;
+  min-width: 156rpx;
+  margin: 0;
+  padding: 0 24rpx;
+  border-radius: 8rpx;
+  background: #1f7a5a;
+  color: #fff;
+  font-size: 26rpx;
+  line-height: 68rpx;
+}
+
+.copy-button::after {
+  border: 0;
+}
+
+.version {
+  margin-top: 36rpx;
+  color: #9aa5a0;
+  font-size: 24rpx;
+  line-height: 1.5;
+  text-align: center;
 }

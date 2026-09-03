@@ -1,6 +1,54 @@
 <navigation-bar title="关于我们" back="{{true}}" color="black" background="#FFF"></navigation-bar>
 
-<view class="page">
-  <view class="title">关于我们</view>
-  <view class="text">duaa 宿舍电量提醒</view>
-</view>
+<scroll-view class="page" scroll-y type="list">
+  <view class="header">
+    <view class="eyebrow">学生项目</view>
+    <view class="title">duaa 宿舍电量提醒</view>
+    <view class="subtitle">
+      面向宿舍电费查询与低电量提醒的小程序，尽量把查电费和提醒这件事做得简单稳定。
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">开发者信息</view>
+    <view class="info-row">
+      <text class="info-label">昵称</text>
+      <text class="info-value">云边的云</text>
+    </view>
+    <view class="info-row">
+      <text class="info-label">身份</text>
+      <text class="info-value">机械学院大三学生</text>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">开源仓库</view>
+    <view class="section-text">
+      项目代码托管在 GitHub，欢迎通过仓库提交 issue 或改进建议。
+    </view>
+    <view class="link-box">
+      <text class="link-text">{{githubUrl}}</text>
+      <button class="copy-button" bindtap="onCopyGithub">复制链接</button>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">反馈联系</view>
+    <view class="section-text">
+      如果遇到数据异常、提醒失败或宿舍信息匹配问题，可以通过邮箱联系。
+    </view>
+    <view class="link-box">
+      <text class="link-text">{{email}}</text>
+      <button class="copy-button" bindtap="onCopyEmail">复制邮箱</button>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">数据说明</view>
+    <view class="section-text">
+      电量查询结果与提醒仅作为辅助参考，实际电费、电量和缴费状态以学校官方系统为准。
+    </view>
+  </view>
+
+  <view class="version">版本 1.0.0</view>
+</scroll-view>
