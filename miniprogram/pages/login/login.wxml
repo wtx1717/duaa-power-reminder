@@ -35,7 +35,7 @@
         </label>
       </checkbox-group>
       <text class="consent-text">我已阅读并同意</text>
-      <navigator class="privacy-link" open-type="openPrivacyContract">隐私政策</navigator>
+      <view class="privacy-link" bindtap="onOpenPrivacyContract">隐私政策</view>
     </view>
 
     <view wx:if="{{message}}" class="message" role="alert">{{message}}</view>

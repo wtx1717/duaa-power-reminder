@@ -227,6 +227,16 @@ Page({
     })
   },
 
+  onOpenPrivacyContract() {
+    wx.openPrivacyContract({
+      fail: () => {
+        this.setData({
+          message: '当前环境不支持打开隐私协议，请在微信真机或更新基础库后重试。',
+        })
+      },
+    })
+  },
+
   requireLogin(): boolean {
     if (hasAuthenticated()) {
       return true

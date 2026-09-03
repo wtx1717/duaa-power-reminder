@@ -147,7 +147,7 @@
     </view>
 
     <view class="footer-links">
-      <navigator class="footer-link" open-type="openPrivacyContract">隐私政策</navigator>
+      <view class="footer-link" bindtap="onOpenPrivacyContract">隐私政策</view>
       <navigator class="footer-link" url="/pages/about/about">关于我们</navigator>
     </view>
 
