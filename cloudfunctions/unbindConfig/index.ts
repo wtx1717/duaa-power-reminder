@@ -1,6 +1,7 @@
 import { COLLECTIONS, getCloudContext, getDatabase } from '../shared/db'
 import type { DatabaseAdapter } from '../shared/db'
-import type { Meter, MeterCheckJob, UserConfig } from '../shared/types'
+import { cleanMeter } from './shared/meterCleanup'
+import type { UserConfig } from '../shared/types'
 
 interface StoredDocument {
   _id?: string
@@ -20,8 +21,6 @@ export interface UnbindConfigResult {
   expiredJobs: number
   error?: string
 }
-
-const ACTIVE_JOB_STATUSES = new Set(['pending', 'running'])
 
 function getErrorDetails(error: unknown): string {
   if (error instanceof Error) {
@@ -74,10 +73,6 @@ function isDocumentNotFoundError(error: unknown): boolean {
 
 function normalizeMeterId(value: unknown): string {
   return String(value || '').trim()
-}
-
-function getBindingField(type: UnbindTarget['type']): 'lightMeterId' | 'acMeterId' {
-  return type === 'ac' ? 'acMeterId' : 'lightMeterId'
 }
 
 async function getUserConfigs(
@@ -161,192 +156,6 @@ async function deleteUserQueryState(
       throw new Error(`删除手动查询状态失败：${getErrorDetails(error)}`)
     }
   }
-}
-
-async function findOtherBindings(
-  db: DatabaseAdapter,
-  target: UnbindTarget,
-  openid: string,
-): Promise<Array<UserConfig & StoredDocument>> {
-  const field = getBindingField(target.type)
-
-  try {
-    const result = await db.collection<UserConfig & StoredDocument>(COLLECTIONS.userConfigs)
-      .where({ [field]: target.meterId })
-      .get()
-
-    return result.data.filter((config) => Boolean(config.openid) && config.openid !== openid)
-  } catch (error) {
-    throw new Error(`查询其他用户绑定失败：${getErrorDetails(error)}`)
-  }
-}
-
-async function getMeter(
-  db: DatabaseAdapter,
-  meterId: string,
-): Promise<(Meter & StoredDocument) | undefined> {
-  try {
-    const result = await db.collection<Meter & StoredDocument>(COLLECTIONS.meters)
-      .where({ meterId })
-      .get()
-    return result.data[0]
-  } catch (error) {
-    throw new Error(`查询电表失败：${getErrorDetails(error)}`)
-  }
-}
-
-async function getMeterJobs(
-  db: DatabaseAdapter,
-  meterId: string,
-): Promise<Array<MeterCheckJob & StoredDocument>> {
-  try {
-    const result = await db.collection<MeterCheckJob & StoredDocument>(COLLECTIONS.meterCheckJobs)
-      .where({ meterId })
-      .get()
-    return result.data
-  } catch (error) {
-    if (isCollectionNotFoundError(error)) {
-      return []
-    }
-
-    throw new Error(`查询调度任务失败：${getErrorDetails(error)}`)
-  }
-}
-
-async function updateMeter(
-  db: DatabaseAdapter,
-  meter: Meter & StoredDocument,
-  data: Record<string, unknown>,
-): Promise<void> {
-  if (!meter._id) {
-    return
-  }
-
-  try {
-    await db.collection<Meter & StoredDocument>(COLLECTIONS.meters).doc(meter._id).update({ data })
-  } catch (error) {
-    throw new Error(`电表清理失败：${getErrorDetails(error)}`)
-  }
-}
-
-async function expirePendingJobs(
-  db: DatabaseAdapter,
-  jobs: Array<MeterCheckJob & StoredDocument>,
-): Promise<number> {
-  let expiredJobs = 0
-
-  try {
-    for (const job of jobs) {
-      if (job.status !== 'pending' || !job._id) {
-        continue
-      }
-
-      await db.collection<MeterCheckJob & StoredDocument>(COLLECTIONS.meterCheckJobs)
-        .doc(job._id)
-        .update({
-          data: {
-            status: 'expired',
-            error: '电表已解绑',
-            finishedAt: db.serverDate(),
-            updatedAt: db.serverDate(),
-          },
-        })
-      expiredJobs += 1
-    }
-  } catch (error) {
-    throw new Error(`调度任务处理失败：${getErrorDetails(error)}`)
-  }
-
-  return expiredJobs
-}
-
-async function markCleanupPending(
-  db: DatabaseAdapter,
-  meter: Meter & StoredDocument,
-): Promise<void> {
-  await updateMeter(db, meter, {
-    cleanupPending: true,
-    cleanupReason: '电表已解绑，存在运行中的调度任务',
-    updatedAt: db.serverDate(),
-  })
-}
-
-async function removeMeter(
-  db: DatabaseAdapter,
-  meter: Meter & StoredDocument,
-): Promise<void> {
-  if (!meter._id) {
-    return
-  }
-
-  try {
-    await db.collection<Meter & StoredDocument>(COLLECTIONS.meters).doc(meter._id).remove()
-  } catch (error) {
-    if (isDocumentNotFoundError(error)) {
-      return
-    }
-
-    throw new Error(`电表清理失败：${getErrorDetails(error)}`)
-  }
-}
-
-async function cleanMeter(
-  db: DatabaseAdapter,
-  target: UnbindTarget,
-  openid: string,
-): Promise<{ action: 'cleaned' | 'retained' | 'cleanup_pending'; expiredJobs: number }> {
-  let otherBindings = await findOtherBindings(db, target, openid)
-  if (otherBindings.length) {
-    return { action: 'retained', expiredJobs: 0 }
-  }
-
-  const meter = await getMeter(db, target.meterId)
-  if (!meter) {
-    return { action: 'cleaned', expiredJobs: 0 }
-  }
-
-  let jobs = await getMeterJobs(db, target.meterId)
-  if (jobs.some((job) => job.status === 'running')) {
-    otherBindings = await findOtherBindings(db, target, openid)
-    if (otherBindings.length) {
-      return { action: 'retained', expiredJobs: 0 }
-    }
-
-    const expiredJobs = await expirePendingJobs(db, jobs)
-    await markCleanupPending(db, meter)
-    return { action: 'cleanup_pending', expiredJobs }
-  }
-
-  otherBindings = await findOtherBindings(db, target, openid)
-  if (otherBindings.length) {
-    return { action: 'retained', expiredJobs: 0 }
-  }
-
-  const expiredJobs = await expirePendingJobs(db, jobs)
-  jobs = await getMeterJobs(db, target.meterId)
-
-  otherBindings = await findOtherBindings(db, target, openid)
-  if (otherBindings.length) {
-    return { action: 'retained', expiredJobs }
-  }
-
-  if (jobs.some((job) => ACTIVE_JOB_STATUSES.has(job.status))) {
-    await markCleanupPending(db, meter)
-    return { action: 'cleanup_pending', expiredJobs }
-  }
-
-  const finalMeter = await getMeter(db, target.meterId)
-  if (!finalMeter) {
-    return { action: 'cleaned', expiredJobs }
-  }
-
-  otherBindings = await findOtherBindings(db, target, openid)
-  if (otherBindings.length) {
-    return { action: 'retained', expiredJobs }
-  }
-
-  await removeMeter(db, finalMeter)
-  return { action: 'cleaned', expiredJobs }
 }
 
 export async function main(): Promise<UnbindConfigResult> {

@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk')
+const { cleanMeter } = require('./shared/meterCleanup')
 
 const COLLECTIONS = {
   userConfigs: 'user_configs',
@@ -56,6 +57,33 @@ function validateInput(input) {
     email,
     reminderEnabled: true,
   }
+}
+
+function collectCleanupTargets(current, next) {
+  if (!current) {
+    return []
+  }
+
+  const nextMeterIds = new Set([
+    normalizeMeterId(next.lightMeterId),
+    normalizeMeterId(next.acMeterId),
+  ])
+  const targets = []
+  const seen = new Set()
+
+  for (const type of ['light', 'ac']) {
+    const field = type === 'ac' ? 'acMeterId' : 'lightMeterId'
+    const meterId = normalizeMeterId(current[field])
+
+    if (!meterId || nextMeterIds.has(meterId) || seen.has(meterId)) {
+      continue
+    }
+
+    seen.add(meterId)
+    targets.push({ meterId, type })
+  }
+
+  return targets
 }
 
 function getErrorDetails(error) {
@@ -154,6 +182,7 @@ exports.main = async (event) => {
   const userConfigs = db.collection(COLLECTIONS.userConfigs)
   const existing = await userConfigs.where({ openid: OPENID }).get()
   const current = existing.data[0]
+  const cleanupTargets = collectCleanupTargets(current, input)
   const config = {
     openid: OPENID,
     lightMeterId: input.lightMeterId,
@@ -188,6 +217,10 @@ exports.main = async (event) => {
 
   await upsertMeter(db, input.lightMeterId, 'light')
   await upsertMeter(db, input.acMeterId, 'ac')
+
+  for (const target of cleanupTargets) {
+    await cleanMeter(db, target, OPENID)
+  }
 
   return {
     ok: true,

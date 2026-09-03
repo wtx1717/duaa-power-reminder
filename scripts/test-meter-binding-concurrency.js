@@ -8,6 +8,7 @@ class MockDatabase {
     this.collections = {
       meters: [],
       user_configs: [],
+      meter_check_jobs: [],
     }
     this.nextId = 1
     this.now = new Date('2026-09-01T00:00:00.000Z')
@@ -71,6 +72,15 @@ class MockDatabase {
             assert(document, `document ${id} not found`)
             applyUpdate(document, data)
             return { stats: { updated: 1 } }
+          },
+
+          async remove() {
+            const documents = database.collections[name] || []
+            const index = documents.findIndex((item) => item._id === id)
+            if (index >= 0) {
+              documents.splice(index, 1)
+            }
+            return { stats: { removed: index >= 0 ? 1 : 0 } }
           },
         }
       },
@@ -208,6 +218,162 @@ async function testSaveConfigRemovesLegacyFields() {
   }
 }
 
+async function testSaveConfigRemovesReplacedMeters() {
+  const database = new MockDatabase()
+  const context = { OPENID: 'openid-user-1' }
+  const { saveConfig } = loadCloudFunctions(database, context)
+
+  database.collections.user_configs.push({
+    _id: 'config-current',
+    openid: 'openid-user-1',
+    lightMeterId: 'OLD-LIGHT',
+    acMeterId: 'OLD-AC',
+    email: 'old@example.com',
+    reminderEnabled: true,
+  })
+  database.collections.meters.push(
+    {
+      _id: 'meter-old-light',
+      meterId: 'OLD-LIGHT',
+      type: 'light',
+      failCount: 0,
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+    {
+      _id: 'meter-old-ac',
+      meterId: 'OLD-AC',
+      type: 'ac',
+      failCount: 0,
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+  )
+
+  await saveConfig.main({
+    lightMeterId: 'NEW-LIGHT',
+    acMeterId: 'NEW-AC',
+    email: 'new@example.com',
+    reminderEnabled: true,
+  })
+
+  assert(!database.collections.meters.some((item) => item.meterId === 'OLD-LIGHT'))
+  assert(!database.collections.meters.some((item) => item.meterId === 'OLD-AC'))
+  assert(database.collections.meters.some((item) => item.meterId === 'NEW-LIGHT'))
+  assert(database.collections.meters.some((item) => item.meterId === 'NEW-AC'))
+}
+
+async function testSaveConfigRetainsSharedOldMeter() {
+  const database = new MockDatabase()
+  const context = { OPENID: 'openid-user-1' }
+  const { saveConfig } = loadCloudFunctions(database, context)
+
+  database.collections.user_configs.push(
+    {
+      _id: 'config-current',
+      openid: 'openid-user-1',
+      lightMeterId: 'OLD-LIGHT',
+      acMeterId: 'OLD-AC',
+      email: 'old@example.com',
+      reminderEnabled: true,
+    },
+    {
+      _id: 'config-other',
+      openid: 'openid-user-2',
+      lightMeterId: 'OLD-LIGHT',
+      acMeterId: 'OTHER-AC',
+      email: 'other@example.com',
+      reminderEnabled: true,
+    },
+  )
+  database.collections.meters.push(
+    {
+      _id: 'meter-old-light',
+      meterId: 'OLD-LIGHT',
+      type: 'light',
+      failCount: 0,
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+    {
+      _id: 'meter-old-ac',
+      meterId: 'OLD-AC',
+      type: 'ac',
+      failCount: 0,
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+  )
+
+  await saveConfig.main({
+    lightMeterId: 'NEW-LIGHT',
+    acMeterId: 'NEW-AC',
+    email: 'new@example.com',
+    reminderEnabled: true,
+  })
+
+  assert(database.collections.meters.some((item) => item.meterId === 'OLD-LIGHT'))
+  assert(!database.collections.meters.some((item) => item.meterId === 'OLD-AC'))
+}
+
+async function testSaveConfigMarksCleanupPendingForRunningOldMeterJob() {
+  const database = new MockDatabase()
+  const context = { OPENID: 'openid-user-1' }
+  const { saveConfig } = loadCloudFunctions(database, context)
+
+  database.collections.user_configs.push({
+    _id: 'config-current',
+    openid: 'openid-user-1',
+    lightMeterId: 'OLD-LIGHT',
+    acMeterId: 'OLD-AC',
+    email: 'old@example.com',
+    reminderEnabled: true,
+  })
+  database.collections.meters.push(
+    {
+      _id: 'meter-old-light',
+      meterId: 'OLD-LIGHT',
+      type: 'light',
+      failCount: 0,
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+    {
+      _id: 'meter-old-ac',
+      meterId: 'OLD-AC',
+      type: 'ac',
+      failCount: 0,
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+    },
+  )
+  database.collections.meter_check_jobs.push({
+    _id: 'job-running-light',
+    meterId: 'OLD-LIGHT',
+    type: 'light',
+    status: 'running',
+    runId: 'run-1',
+    plannedAt: new Date('2026-09-01T00:00:00.000Z'),
+    deadlineAt: new Date('2026-09-01T01:00:00.000Z'),
+    createdAt: new Date('2026-09-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+  })
+
+  await saveConfig.main({
+    lightMeterId: 'NEW-LIGHT',
+    acMeterId: 'NEW-AC',
+    email: 'new@example.com',
+    reminderEnabled: true,
+  })
+
+  const meter = database.collections.meters.find((item) => item.meterId === 'OLD-LIGHT')
+  assert(meter)
+  assert.strictEqual(meter.cleanupPending, true)
+  assert.strictEqual(meter.cleanupReason, '电表已解绑，存在运行中的调度任务')
+  assert.strictEqual(database.collections.meter_check_jobs[0].status, 'running')
+  assert(!database.collections.meters.some((item) => item.meterId === 'OLD-AC'))
+}
+
 async function testDuplicateKeyRecovery() {
   const database = new MockDatabase()
   const { saveConfig } = loadCloudFunctions(database, { OPENID: 'unused' })
@@ -271,6 +437,9 @@ async function testQueryPowerDuplicateKeyRecovery() {
 async function main() {
   await testSaveConfigConcurrency()
   await testSaveConfigRemovesLegacyFields()
+  await testSaveConfigRemovesReplacedMeters()
+  await testSaveConfigRetainsSharedOldMeter()
+  await testSaveConfigMarksCleanupPendingForRunningOldMeterJob()
   await testDuplicateKeyRecovery()
   await testQueryPowerDuplicateKeyRecovery()
   console.log('OK: meter binding concurrency tests passed.')

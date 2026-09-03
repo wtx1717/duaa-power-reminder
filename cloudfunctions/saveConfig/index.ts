@@ -1,5 +1,6 @@
 import { COLLECTIONS, getCloudContext, getDatabase } from '../shared/db'
 import type { DatabaseAdapter } from '../shared/db'
+import { cleanMeter } from './shared/meterCleanup'
 import type { Meter, SaveConfigInput, UserConfig } from '../shared/types'
 
 export interface SaveConfigResult {
@@ -19,6 +20,11 @@ type ValidatedSaveConfigInput = Pick<
   SaveConfigInput,
   'lightMeterId' | 'acMeterId' | 'email' | 'reminderEnabled'
 >
+
+type CleanupTarget = {
+  meterId: string
+  type: Meter['type']
+}
 
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
@@ -67,6 +73,36 @@ function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
     email,
     reminderEnabled: true,
   }
+}
+
+function collectCleanupTargets(
+  current: (UserConfig & StoredDocument) | undefined,
+  next: ValidatedSaveConfigInput,
+): CleanupTarget[] {
+  if (!current) {
+    return []
+  }
+
+  const nextMeterIds = new Set([
+    normalizeMeterId(next.lightMeterId),
+    normalizeMeterId(next.acMeterId),
+  ])
+  const targets: CleanupTarget[] = []
+  const seen = new Set<string>()
+
+  for (const type of ['light', 'ac'] as const) {
+    const field = type === 'ac' ? 'acMeterId' : 'lightMeterId'
+    const meterId = normalizeMeterId(current[field])
+
+    if (!meterId || nextMeterIds.has(meterId) || seen.has(meterId)) {
+      continue
+    }
+
+    seen.add(meterId)
+    targets.push({ meterId, type })
+  }
+
+  return targets
 }
 
 function getErrorDetails(error: unknown): string {
@@ -181,6 +217,7 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
   const userConfigs = db.collection<UserConfig & StoredDocument>(COLLECTIONS.userConfigs)
   const existing = await userConfigs.where({ openid: OPENID }).get()
   const current = existing.data[0]
+  const cleanupTargets = collectCleanupTargets(current, input)
   const config = {
     openid: OPENID,
     lightMeterId: input.lightMeterId,
@@ -215,6 +252,10 @@ export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
 
   await upsertMeter(db, input.lightMeterId, 'light')
   await upsertMeter(db, input.acMeterId, 'ac')
+
+  for (const target of cleanupTargets) {
+    await cleanMeter(db, target, OPENID)
+  }
 
   return {
     ok: true,
