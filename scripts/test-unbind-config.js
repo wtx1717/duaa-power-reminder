@@ -288,20 +288,53 @@ async function testRunningJobsKeepMeterAndStopFuturePlanning() {
 }
 
 function testFrontendFlow() {
-  const pagePath = require('path').join(__dirname, '..', 'miniprogram', 'pages', 'index')
-  const pageSource = fs.readFileSync(`${pagePath}/index.ts`, 'utf8')
-  const template = fs.readFileSync(`${pagePath}/index.wxml`, 'utf8')
+  const root = require('path').join(__dirname, '..', 'miniprogram')
+  const appConfig = JSON.parse(fs.readFileSync(`${root}/app.json`, 'utf8'))
+  const indexSource = fs.readFileSync(`${root}/pages/index/index.ts`, 'utf8')
+  const indexTemplate = fs.readFileSync(`${root}/pages/index/index.wxml`, 'utf8')
+  const settingsSource = fs.readFileSync(`${root}/pages/settings/settings.ts`, 'utf8')
+  const settingsTemplate = fs.readFileSync(`${root}/pages/settings/settings.wxml`, 'utf8')
+  const aboutTemplate = fs.readFileSync(`${root}/pages/about/about.wxml`, 'utf8')
+  const loginSource = fs.readFileSync(`${root}/pages/login/login.ts`, 'utf8')
 
-  assert(template.includes('解绑并退出登录'))
-  assert(template.includes('bindtap="onUnbindAndLogout"'))
-  assert(template.includes('登录后可以保存电表配置、查询实时电量并接收低电量提醒。'))
-  assert(template.includes('bindtap="onAuthorizeLogin"'))
-  assert(pageSource.includes('解绑后将删除当前电表和邮箱配置，关闭低电量提醒，并退出当前账号。历史查询记录和提醒记录会保留。确定继续吗？'))
-  assert(pageSource.includes('if (!confirmed)'))
-  assert(/wx\.reLaunch\(\{\s*url: '\/pages\/index\/index'/.test(pageSource))
-  assert(!/if \(!hasAuthenticated\(\)[\s\S]*?wx\.redirectTo\(\{\s*url: '\/pages\/login\/login'/.test(pageSource))
-  assert(pageSource.includes('保存配置和查询电量需要登录，请先授权登录。'))
-  assert(pageSource.includes('clearAuthenticated()'))
+  assert.deepStrictEqual(appConfig.pages.slice(0, 3), [
+    'pages/index/index',
+    'pages/settings/settings',
+    'pages/about/about',
+  ])
+  assert(appConfig.tabBar)
+  assert.strictEqual(appConfig.tabBar.list.length, 2)
+  assert.strictEqual(appConfig.tabBar.list[0].text, '首页')
+  assert.strictEqual(appConfig.tabBar.list[1].text, '设置')
+
+  assert(indexTemplate.includes('duaa 宿舍电量提醒'))
+  assert(indexTemplate.includes('查询当前电量'))
+  assert(indexTemplate.includes('照明电表'))
+  assert(indexTemplate.includes('空调电表'))
+  assert(!indexTemplate.includes('保存配置'))
+  assert(!indexTemplate.includes('解绑并退出登录'))
+  assert(!indexTemplate.includes('提醒邮箱'))
+  assert(indexSource.includes('queryPower'))
+  assert(indexSource.includes('createHomePowerState'))
+  assert(indexSource.includes('wx.switchTab'))
+
+  assert(settingsTemplate.includes('保存配置'))
+  assert(settingsTemplate.includes('解绑并退出登录'))
+  assert(settingsTemplate.includes('隐私政策'))
+  assert(settingsTemplate.includes('关于我们'))
+  assert(settingsTemplate.includes('授权登录'))
+  assert(settingsSource.includes('createLoginSelectionPatch'))
+  assert(settingsSource.includes('createHomePowerState'))
+  assert(settingsSource.includes('wx.switchTab'))
+  assert(settingsSource.includes('clearAuthenticated()'))
+  assert(settingsSource.includes('保存配置需要登录，请先授权登录。'))
+  assert(settingsSource.includes('解绑后将删除当前电表和邮箱配置，关闭低电量提醒，并退出当前账号。历史查询记录和提醒记录会保留。确定继续吗？'))
+
+  assert(aboutTemplate.includes('关于我们'))
+  assert(aboutTemplate.includes('duaa 宿舍电量提醒'))
+
+  assert(loginSource.includes('wx.switchTab'))
+  assert(loginSource.includes('/pages/settings/settings'))
 }
 
 async function main() {

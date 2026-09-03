@@ -1,6 +1,8 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/settings/settings",
+    "pages/about/about",
     "pages/login/login",
     "pages/logs/logs"
   ],
@@ -8,6 +10,22 @@
   "window": {
     "navigationBarTextStyle": "black",
     "navigationStyle": "custom"
+  },
+  "tabBar": {
+    "color": "#66736d",
+    "selectedColor": "#1f7a5a",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/settings/settings",
+        "text": "设置"
+      }
+    ]
   },
   "style": "v2",
   "rendererOptions": {

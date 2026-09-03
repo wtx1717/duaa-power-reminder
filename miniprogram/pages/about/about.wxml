@@ -1,0 +1,6 @@
+<navigation-bar title="关于我们" back="{{true}}" color="black" background="#FFF"></navigation-bar>
+
+<view class="page">
+  <view class="title">关于我们</view>
+  <view class="text">duaa 宿舍电量提醒</view>
+</view>

@@ -6,192 +6,58 @@
     <view class="subtitle">{{openidText}}</view>
   </view>
 
-  <view class="form">
-    <view class="field">
-      <text class="label">宿舍位置</text>
-      <picker
-        class="picker"
-        mode="selector"
-        range="{{campusOptions}}"
-        value="{{campusIndex}}"
-        bindchange="onCampusChange"
-      >
-        <view class="picker-input {{campusIndex === 0 ? 'placeholder' : ''}}">
-          {{campusOptions[campusIndex]}}
-        </view>
-      </picker>
-    </view>
-
-    <view class="field">
-      <text class="label">楼栋</text>
-      <picker
-        class="picker"
-        mode="selector"
-        range="{{buildingOptions}}"
-        value="{{buildingIndex}}"
-        disabled="{{campusIndex === 0}}"
-        bindchange="onBuildingChange"
-      >
-        <view class="picker-input {{buildingIndex === 0 ? 'placeholder' : ''}}">
-          {{buildingOptions[buildingIndex]}}
-        </view>
-      </picker>
-    </view>
-
-    <view class="field">
-      <text class="label">楼层</text>
-      <picker
-        class="picker"
-        mode="selector"
-        range="{{floorOptions}}"
-        value="{{floorIndex}}"
-        disabled="{{buildingIndex === 0}}"
-        bindchange="onFloorChange"
-      >
-        <view class="picker-input {{floorIndex === 0 ? 'placeholder' : ''}}">
-          {{floorOptions[floorIndex]}}
-        </view>
-      </picker>
-    </view>
-
-    <view class="field">
-      <text class="label">房间</text>
-      <picker
-        class="picker"
-        mode="selector"
-        range="{{roomOptions}}"
-        value="{{roomIndex}}"
-        disabled="{{floorIndex === 0}}"
-        bindchange="onRoomChange"
-      >
-        <view class="picker-input {{roomIndex === 0 ? 'placeholder' : ''}}">
-          {{roomOptions[roomIndex]}}
-        </view>
-      </picker>
-    </view>
-
-    <view class="field">
+  <view class="meter-summary">
+    <view class="meter-summary-item">
       <text class="label">照明电表号</text>
-      <input
-        class="input {{lightMeterEditable ? '' : 'readonly-input'}}"
-        value="{{lightMeterId}}"
-        placeholder="自动匹配或手动填写照明电表号"
-        placeholder-class="placeholder"
-        disabled="{{!lightMeterEditable}}"
-        bindinput="onLightMeterInput"
-      />
-      <view wx:if="{{lightMeterAddress || lightMeterNo}}" class="meter-hint">
-        {{lightMeterAddress}}{{lightMeterNo ? '，序列号 ' + lightMeterNo : ''}}
+      <view class="readonly-value {{lightMeterId ? '' : 'placeholder'}}">
+        {{lightMeterId || '未填写'}}
       </view>
     </view>
 
-    <view class="field">
+    <view class="meter-summary-item">
       <text class="label">空调电表号</text>
-      <input
-        class="input {{acMeterEditable ? '' : 'readonly-input'}}"
-        value="{{acMeterId}}"
-        placeholder="自动匹配或手动填写空调电表号"
-        placeholder-class="placeholder"
-        disabled="{{!acMeterEditable}}"
-        bindinput="onAcMeterInput"
-      />
-      <view wx:if="{{acMeterAddress || acMeterNo}}" class="meter-hint">
-        {{acMeterAddress}}{{acMeterNo ? '，序列号 ' + acMeterNo : ''}}
+      <view class="readonly-value {{acMeterId ? '' : 'placeholder'}}">
+        {{acMeterId || '未填写'}}
       </view>
-    </view>
-
-    <view wx:if="{{mappingMessage}}" class="mapping-message">
-      {{mappingMessage}}
-    </view>
-
-    <view class="field">
-      <text class="label">提醒邮箱</text>
-      <input
-        class="input"
-        type="text"
-        value="{{email}}"
-        placeholder="请输入接收提醒的邮箱"
-        placeholder-class="placeholder"
-        bindinput="onEmailInput"
-      />
-    </view>
-
-    <button
-      class="save-button"
-      type="primary"
-      loading="{{saving}}"
-      disabled="{{loading || saving || queryingAll}}"
-      bindtap="onSaveConfig"
-    >
-      保存配置
-    </button>
-
-    <button
-      class="query-button"
-      loading="{{queryingAll}}"
-      disabled="{{loading || saving || queryingAll}}"
-      bindtap="onQueryPower"
-    >
-      查询当前电量
-    </button>
-
-    <button
-      wx:if="{{isAuthenticated}}"
-      class="unbind-button"
-      loading="{{loading}}"
-      disabled="{{loading || saving || queryingAll}}"
-      bindtap="onUnbindAndLogout"
-    >
-      解绑并退出登录
-    </button>
-
-    <view class="result-list">
-      <view class="result-item">
-        <view class="result-header">
-          <text class="result-title">照明电表</text>
-          <text class="result-meter">{{lightPower.meterId || '未填写'}}</text>
-        </view>
-        <view wx:if="{{lightPower.loading}}" class="result-text">查询中...</view>
-        <view wx:elif="{{lightPower.result}}" class="result-text {{lightPower.result.ok ? 'success' : 'error'}}">
-          {{lightPower.displayText}}
-        </view>
-        <view wx:else class="result-text muted">尚未查询</view>
-        <view wx:if="{{lightPower.result.address}}" class="result-address">{{lightPower.result.address}}</view>
-      </view>
-
-      <view class="result-item">
-        <view class="result-header">
-          <text class="result-title">空调电表</text>
-          <text class="result-meter">{{acPower.meterId || '未填写'}}</text>
-        </view>
-        <view wx:if="{{acPower.loading}}" class="result-text">查询中...</view>
-        <view wx:elif="{{acPower.result}}" class="result-text {{acPower.result.ok ? 'success' : 'error'}}">
-          {{acPower.displayText}}
-        </view>
-        <view wx:else class="result-text muted">尚未查询</view>
-        <view wx:if="{{acPower.result.address}}" class="result-address">{{acPower.result.address}}</view>
-      </view>
-    </view>
-
-    <view wx:if="{{message}}" class="message">{{message}}</view>
-
-    <view class="login-prompt">
-      <view class="login-prompt-title">{{isAuthenticated ? '已完成授权登录' : ''}}</view>
-      <view wx:if="{{!isAuthenticated}}" class="login-prompt-text">登录后可以保存电表配置、查询实时电量并接收低电量提醒。</view>
-      <button
-        wx:if="{{!isAuthenticated}}"
-        class="login-button"
-        type="primary"
-        loading="{{loading}}"
-        disabled="{{loading}}"
-        bindtap="onAuthorizeLogin"
-      >
-        授权登录
-      </button>
-    </view>
-
-    <view class="footer-links">
-      <navigator class="privacy-link" open-type="openPrivacyContract">隐私政策</navigator>
     </view>
   </view>
+
+  <button
+    class="query-button"
+    loading="{{queryingAll}}"
+    disabled="{{loading || queryingAll}}"
+    bindtap="onQueryPower"
+  >
+    查询当前电量
+  </button>
+
+  <view class="result-list">
+    <view class="result-item">
+      <view class="result-header">
+        <text class="result-title">照明电表</text>
+        <text class="result-meter">{{lightPower.meterId || '未填写'}}</text>
+      </view>
+      <view wx:if="{{lightPower.loading}}" class="result-text">查询中...</view>
+      <view wx:elif="{{lightPower.result}}" class="result-text {{lightPower.result.ok ? 'success' : 'error'}}">
+        {{lightPower.displayText}}
+      </view>
+      <view wx:else class="result-text muted">尚未查询</view>
+      <view wx:if="{{lightPower.result.address}}" class="result-address">{{lightPower.result.address}}</view>
+    </view>
+
+    <view class="result-item">
+      <view class="result-header">
+        <text class="result-title">空调电表</text>
+        <text class="result-meter">{{acPower.meterId || '未填写'}}</text>
+      </view>
+      <view wx:if="{{acPower.loading}}" class="result-text">查询中...</view>
+      <view wx:elif="{{acPower.result}}" class="result-text {{acPower.result.ok ? 'success' : 'error'}}">
+        {{acPower.displayText}}
+      </view>
+      <view wx:else class="result-text muted">尚未查询</view>
+      <view wx:if="{{acPower.result.address}}" class="result-address">{{acPower.result.address}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{message}}" class="message">{{message}}</view>
 </scroll-view>

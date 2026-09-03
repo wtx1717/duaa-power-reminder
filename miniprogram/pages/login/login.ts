@@ -32,8 +32,8 @@ Page({
     }
 
     this.setData({ redirecting: true })
-    wx.redirectTo({
-      url: '/pages/index/index',
+    wx.switchTab({
+      url: '/pages/settings/settings',
     })
   },
 
@@ -71,8 +71,8 @@ Page({
       await loginWithWechat()
       markAuthenticated()
 
-      wx.redirectTo({
-        url: '/pages/index/index',
+      wx.switchTab({
+        url: '/pages/settings/settings',
       })
     } catch (error) {
       this.setData({

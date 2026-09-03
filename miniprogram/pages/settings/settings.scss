@@ -1,0 +1,162 @@
+page {
+  min-height: 100vh;
+  background: #f5f7f8;
+  color: #17211c;
+}
+
+.page {
+  box-sizing: border-box;
+  height: 100vh;
+  padding: 32rpx 32rpx 72rpx;
+}
+
+.header {
+  margin-bottom: 32rpx;
+}
+
+.title {
+  font-size: 44rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.subtitle {
+  margin-top: 8rpx;
+  color: #66736d;
+  font-size: 26rpx;
+}
+
+.form {
+  padding-bottom: 56rpx;
+}
+
+.field {
+  margin-bottom: 28rpx;
+}
+
+.label {
+  display: block;
+  margin-bottom: 12rpx;
+  color: #26332d;
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 88rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid #d9e0dd;
+  border-radius: 8rpx;
+  background: #fff;
+  font-size: 30rpx;
+}
+
+.picker {
+  width: 100%;
+}
+
+.picker-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88rpx;
+  padding: 24rpx;
+  border: 1rpx solid #d9e0dd;
+  border-radius: 8rpx;
+  background: #fff;
+  color: #17211c;
+  font-size: 30rpx;
+  line-height: 1.35;
+}
+
+.readonly-input {
+  color: #66736d;
+  background: #eef2f0;
+}
+
+.placeholder {
+  color: #9aa5a0;
+}
+
+.meter-hint {
+  margin-top: 10rpx;
+  color: #66736d;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.mapping-message {
+  margin: -6rpx 0 28rpx;
+  color: #52615a;
+  font-size: 25rpx;
+  line-height: 1.5;
+}
+
+.save-button,
+.unbind-button,
+.login-button {
+  width: 100%;
+  margin-top: 20rpx;
+  border-radius: 8rpx;
+  font-size: 30rpx;
+}
+
+.save-button {
+  background: #1f7a5a;
+}
+
+.unbind-button {
+  color: #fff;
+  background: #b5452f;
+}
+
+.login-prompt {
+  box-sizing: border-box;
+  margin-top: 32rpx;
+  padding: 24rpx;
+  border: 1rpx solid #cfe2d9;
+  border-radius: 8rpx;
+  background: #f4faf7;
+  text-align: center;
+}
+
+.login-prompt-title {
+  color: #17211c;
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.login-prompt-text {
+  margin-top: 8rpx;
+  color: #66736d;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+.login-button {
+  margin: 20rpx 0 0;
+  background: #1f7a5a;
+}
+
+.footer-links {
+  margin-top: 24rpx;
+  display: flex;
+  justify-content: flex-end;
+  gap: 24rpx;
+}
+
+.footer-link {
+  color: #7b8782;
+  font-size: 24rpx;
+  line-height: 1.4;
+  padding: 8rpx 0;
+}
+
+.message {
+  margin-top: 24rpx;
+  color: #8a4f16;
+  font-size: 26rpx;
+  line-height: 1.5;
+}
