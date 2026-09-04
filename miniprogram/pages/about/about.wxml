@@ -50,7 +50,7 @@
   </view>
 
 
-  <view class="version">版本 1.0.2</view>
+  <view class="version">版本 1.0.3</view>
 </scroll-view>
 
 <view wx:if="{{showAppreciationCode}}" class="modal-mask" catchtap="onHideAppreciationCode">
