@@ -22,6 +22,5 @@ export async function loginWithWechat(): Promise<LoginResult> {
     name: 'login',
     data: {},
   })
-  setCachedLoginResult(result)
-  return result
+  return setCachedLoginResult(result)
 }

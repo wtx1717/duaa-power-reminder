@@ -2,6 +2,7 @@ import { hasAuthenticated, loginWithWechat } from '../../services/auth'
 import {
   getCachedLoginResult,
   isCachedLoginResultFresh,
+  updateCachedMeterResult,
 } from '../../services/config-cache'
 import { queryPower } from '../../services/meter'
 import type { LoginResult, QueryPowerResult } from '../../types/domain'
@@ -211,6 +212,8 @@ Page({
 
       const lightPower = createMeterView('照明', lightMeterId, lightResult)
       const acPower = createMeterView('空调', acMeterId, acResult)
+      updateCachedMeterResult('light', lightResult)
+      updateCachedMeterResult('ac', acResult)
       const currentState = getGlobalHomePowerState() || createHomePowerState(
         { lightMeterId, acMeterId },
         undefined,
