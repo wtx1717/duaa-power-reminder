@@ -2,7 +2,6 @@ import type { Meter, PowerQueryResult } from './types'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
-const MIN_ESTIMATED_DAILY_USAGE_KWH = 0.5
 const SAFETY_MARGIN_DAYS = 2
 const NEAR_THRESHOLD_BAND_KWH = 5
 const DEFAULT_REMINDER_THRESHOLD_KWH = 20
@@ -37,7 +36,7 @@ export function calculateNextCheckAt(
 function normalizeEstimatedDailyUsageKwh(value: unknown): number {
   const usage = Number(value)
 
-  if (!Number.isFinite(usage) || usage < MIN_ESTIMATED_DAILY_USAGE_KWH) {
+  if (!Number.isFinite(usage) || usage <= 0) {
     return DEFAULT_ESTIMATED_DAILY_USAGE_KWH
   }
 

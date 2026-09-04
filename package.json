@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "test": "npm run test:scheduled-plan && npm run test:meter-binding && npm run test:query-rate-limit && npm run test:unbind",
+    "test": "npm run test:scheduled-plan && npm run test:scheduled-estimate && npm run test:meter-binding && npm run test:query-rate-limit && npm run test:unbind",
     "test:meter-binding": "node scripts/test-meter-binding-concurrency.js",
     "test:query-rate-limit": "node scripts/test-query-power-rate-limit.js",
     "test:scheduled-plan": "node scripts/test-scheduled-random-plan.js",
+    "test:scheduled-estimate": "node scripts/test-scheduled-estimate.js",
     "test:unbind": "node scripts/test-unbind-config.js"
   },
   "keywords": [],

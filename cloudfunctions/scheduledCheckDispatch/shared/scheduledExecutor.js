@@ -16,13 +16,13 @@ const REQUEST_TIMEOUT_MS = 3000
 const DEFAULT_CHECK_INTERVAL_MINUTES = 10
 const MIN_CHECK_INTERVAL_MINUTES = 1
 const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
-const MIN_ESTIMATED_DAILY_USAGE_KWH = 0.5
 const SAFETY_MARGIN_DAYS = 2
 const NEAR_THRESHOLD_BAND_KWH = 5
 const DEFAULT_REMINDER_THRESHOLD_KWH = 20
 const RECHARGE_DELTA_KWH = 5
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
-const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 1
+const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 4
+const MIN_OBSERVED_DAILY_USAGE_KWH = 1
 
 function stripTags(value) {
   return String(value || '')
@@ -188,11 +188,63 @@ function normalizeCheckIntervalMinutes(value) {
 function normalizeEstimatedDailyUsageKwh(value) {
   const usage = Number(value)
 
-  if (!Number.isFinite(usage) || usage < MIN_ESTIMATED_DAILY_USAGE_KWH) {
+  if (!Number.isFinite(usage) || usage <= 0) {
     return DEFAULT_ESTIMATED_DAILY_USAGE_KWH
   }
 
   return usage
+}
+
+function isSuccessfulScheduledPowerRecord(record) {
+  return Boolean(
+    record
+    && record.source === 'scheduledCheck'
+    && record.ok === true
+    && Number.isFinite(Number(record.remainingKwh))
+    && asDate(record.queriedAt),
+  )
+}
+
+function findEstimateBaseRecord(records, currentRecord) {
+  const currentQueriedAt = asDate(currentRecord && currentRecord.queriedAt)
+
+  if (
+    !currentQueriedAt
+    || !Number.isFinite(Number(currentRecord && currentRecord.remainingKwh))
+  ) {
+    return undefined
+  }
+
+  const history = (Array.isArray(records) ? records : [])
+    .filter((record) => isSuccessfulScheduledPowerRecord(record))
+    .filter((record) => asDate(record.queriedAt) < currentQueriedAt)
+    .sort((left, right) => asDate(right.queriedAt).getTime() - asDate(left.queriedAt).getTime())
+
+  let newerRecord = currentRecord
+
+  for (const olderRecord of history) {
+    const olderQueriedAt = asDate(olderRecord.queriedAt)
+    const newerQueriedAt = asDate(newerRecord.queriedAt)
+
+    if (!olderQueriedAt || !newerQueriedAt || olderQueriedAt >= newerQueriedAt) {
+      continue
+    }
+
+    if (Number(newerRecord.remainingKwh) >= Number(olderRecord.remainingKwh) + RECHARGE_DELTA_KWH) {
+      const elapsedDays = (currentQueriedAt.getTime() - newerQueriedAt.getTime()) / ONE_DAY_MS
+      return elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS ? newerRecord : undefined
+    }
+
+    const elapsedDays = (currentQueriedAt.getTime() - olderQueriedAt.getTime()) / ONE_DAY_MS
+
+    if (elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS) {
+      return olderRecord
+    }
+
+    newerRecord = olderRecord
+  }
+
+  return undefined
 }
 
 function calculateScheduleState(input) {
@@ -200,6 +252,7 @@ function calculateScheduleState(input) {
   const meter = input.meter || {}
   const record = input.record
   const previousRecord = input.previousRecord
+  const estimateBaseRecord = input.estimateBaseRecord
   const thresholdKwh = DEFAULT_REMINDER_THRESHOLD_KWH
   const previousMode = meter.scheduleMode || 'normal'
   const previousEstimate = normalizeEstimatedDailyUsageKwh(meter.estimatedDailyUsageKwh)
@@ -232,15 +285,18 @@ function calculateScheduleState(input) {
     scheduleMode = 'normal'
   }
 
-  if (!rechargeDetected && previousRemainingKwh !== undefined && previousQueriedAt) {
-    const elapsedDays = (record.queriedAt.getTime() - previousQueriedAt.getTime()) / ONE_DAY_MS
-    const observedDailyUsage = (previousRemainingKwh - record.remainingKwh) / elapsedDays
+  const estimateBaseRemainingKwh = estimateBaseRecord && estimateBaseRecord.remainingKwh
+  const estimateBaseQueriedAt = asDate(estimateBaseRecord && estimateBaseRecord.queriedAt)
 
-    if (elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS && observedDailyUsage > 0) {
-      estimatedDailyUsageKwh = Math.max(
-        MIN_ESTIMATED_DAILY_USAGE_KWH,
-        previousEstimate * 0.8 + observedDailyUsage * 0.2,
-      )
+  if (!rechargeDetected && estimateBaseRemainingKwh !== undefined && estimateBaseQueriedAt) {
+    const elapsedDays = (record.queriedAt.getTime() - estimateBaseQueriedAt.getTime()) / ONE_DAY_MS
+    const observedDailyUsage = (estimateBaseRemainingKwh - record.remainingKwh) / elapsedDays
+
+    if (
+      elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS
+      && observedDailyUsage >= MIN_OBSERVED_DAILY_USAGE_KWH
+    ) {
+      estimatedDailyUsageKwh = previousEstimate * 0.8 + observedDailyUsage * 0.2
     }
   }
 
@@ -275,7 +331,7 @@ function calculateScheduleState(input) {
   }
 }
 
-async function getPreviousSuccessfulPowerRecord(db, meterId) {
+async function getPreviousSuccessfulPowerRecords(db, meterId) {
   try {
     const result = await db.collection(COLLECTIONS.powerRecords)
       .where({
@@ -285,18 +341,15 @@ async function getPreviousSuccessfulPowerRecord(db, meterId) {
       .limit(50)
       .get()
 
-    return result.data.find((record) => (
-      record
-      && record.source === 'scheduledCheck'
-      && record.ok === true
-      && record.remainingKwh !== undefined
-    ))
+    return result.data
+      .filter((record) => isSuccessfulScheduledPowerRecord(record))
+      .sort((left, right) => asDate(right.queriedAt).getTime() - asDate(left.queriedAt).getTime())
   } catch (error) {
     console.warn('Failed to read previous power record', {
       meterId,
       error,
     })
-    return undefined
+    return []
   }
 }
 
@@ -572,7 +625,9 @@ function getMeterType(meter) {
 async function processMeter(db, meter) {
   const type = getMeterType(meter)
   const record = await queryMeter(meter, type)
-  const previousRecord = await getPreviousSuccessfulPowerRecord(db, record.meterId)
+  const previousRecords = await getPreviousSuccessfulPowerRecords(db, record.meterId)
+  const previousRecord = previousRecords[0]
+  const estimateBaseRecord = findEstimateBaseRecord(previousRecords, record)
   const configs = await findBoundReminderConfigs(db, record.meterId, type)
 
   await db.collection(COLLECTIONS.powerRecords).add({
@@ -584,6 +639,7 @@ async function processMeter(db, meter) {
   })
   const schedule = await updateMeter(db, meter, record, type, {
     previousRecord,
+    estimateBaseRecord,
   })
 
   if (!record.ok || record.remainingKwh === undefined) {
@@ -772,5 +828,9 @@ async function executePlannedJob(db, jobId) {
 
 module.exports = {
   asDate,
+  calculateScheduleState,
   executePlannedJob,
+  findEstimateBaseRecord,
+  getPreviousSuccessfulPowerRecords,
+  updateMeter,
 }
