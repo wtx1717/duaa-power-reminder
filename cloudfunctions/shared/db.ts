@@ -6,6 +6,7 @@ export const COLLECTIONS = {
   notificationRecords: 'notification_records',
   meterCheckJobs: 'meter_check_jobs',
   jobLocks: 'job_locks',
+  opsDashboardSnapshots: 'ops_dashboard_snapshots',
 } as const
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS]

@@ -1,5 +1,6 @@
 node_modules/
 project.private.config.json
 docs/
+outputs/
 .env
 .env.*
