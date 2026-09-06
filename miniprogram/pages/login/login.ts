@@ -4,6 +4,7 @@ import {
   loginWithWechat,
   markAuthenticated,
 } from '../../services/auth'
+import { createShareAppMessage, createShareTimeline } from '../../utils/share'
 
 type CheckboxChangeEvent = {
   detail: {
@@ -93,5 +94,13 @@ Page({
     } finally {
       this.setData({ loading: false })
     }
+  },
+
+  onShareAppMessage() {
+    return createShareAppMessage()
+  },
+
+  onShareTimeline() {
+    return createShareTimeline()
   },
 })

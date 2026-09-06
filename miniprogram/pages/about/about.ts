@@ -1,3 +1,5 @@
+import { createShareAppMessage, createShareTimeline } from '../../utils/share'
+
 const githubUrl = 'https://github.com/wtx1717/duaa-power-reminder'
 const email = '13100162717@163.com'
 const appreciationCodeUrl = '/assets/appreciation-code.jpg'
@@ -23,6 +25,14 @@ Page({
       urls: [appreciationCodeUrl],
       current: appreciationCodeUrl,
     })
+  },
+
+  onShareAppMessage() {
+    return createShareAppMessage()
+  },
+
+  onShareTimeline() {
+    return createShareTimeline()
   },
 
   noop() {},

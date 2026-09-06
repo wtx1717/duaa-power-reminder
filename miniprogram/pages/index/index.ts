@@ -11,6 +11,7 @@ import {
   createMeterView,
   type HomePowerState,
 } from '../../utils/power-state'
+import { createShareAppMessage, createShareTimeline } from '../../utils/share'
 
 const QUERY_BUTTON_COOLDOWN_MS = 3000
 const QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
@@ -247,5 +248,13 @@ Page({
     } finally {
       this.setData({ queryingAll: false })
     }
+  },
+
+  onShareAppMessage() {
+    return createShareAppMessage()
+  },
+
+  onShareTimeline() {
+    return createShareTimeline()
   },
 })

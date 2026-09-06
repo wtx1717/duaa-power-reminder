@@ -26,6 +26,7 @@ import {
   getRooms,
   type DormitoryLocation,
 } from '../../utils/dormitory-map'
+import { createShareAppMessage, createShareTimeline } from '../../utils/share'
 
 const LOGIN_CACHE_MAX_AGE_MS = 5 * 60 * 1000
 
@@ -580,5 +581,13 @@ Page({
         message: formatUnbindError(error),
       })
     }
+  },
+
+  onShareAppMessage() {
+    return createShareAppMessage()
+  },
+
+  onShareTimeline() {
+    return createShareTimeline()
   },
 })
