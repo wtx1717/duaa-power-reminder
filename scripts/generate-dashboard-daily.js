@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const vm = require('vm')
 
 const COLLECTIONS = {
@@ -10,9 +11,10 @@ const START_MARKER = '/* DASHBOARD_SNAPSHOTS_START */'
 const END_MARKER = '/* DASHBOARD_SNAPSHOTS_END */'
 
 const DEFAULT_DOTENV_PATH = path.resolve(__dirname, '..', '.env')
-const DEFAULT_TEMPLATE_PATH = 'D:\\桌面\\最终样式确定.html'
+const DEFAULT_TEMPLATE_PATH = path.resolve(__dirname, '..', 'templates', 'ops', 'dashboard-template.html')
 const DEFAULT_OUTPUT_PATH = path.resolve(__dirname, '..', 'outputs', 'ops', 'dashboard-daily.html')
 const DEFAULT_SNAPSHOT_STORE_DIR = path.resolve(__dirname, '..', 'outputs', 'ops', 'snapshots')
+const DEFAULT_SNAPSHOT_READ_TIMEOUT_MS = Number(process.env.DASHBOARD_SNAPSHOT_READ_TIMEOUT_MS || 30000)
 let lastWrittenOutputPath = DEFAULT_OUTPUT_PATH
 
 function resolveCloudbaseSdk() {
@@ -173,8 +175,50 @@ function writeTextIfChanged(filePath, text) {
     }
   }
 
-  fs.writeFileSync(filePath, content, 'utf8')
-  return true
+  let lastError = null
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.writeFileSync(filePath, content, 'utf8')
+      return true
+    } catch (error) {
+      lastError = error
+      const code = error && typeof error === 'object' ? error.code : ''
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+        throw error
+      }
+      const waitMs = 50 * (attempt + 1)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs)
+    }
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+
+  return false
+}
+
+function writeTextAtomic(filePath, text) {
+  const content = String(text)
+  const directory = path.dirname(filePath)
+  const tempPath = path.join(directory, `${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`)
+
+  fs.mkdirSync(directory, { recursive: true })
+  fs.writeFileSync(tempPath, content, 'utf8')
+
+  try {
+    fs.renameSync(tempPath, filePath)
+    return true
+  } catch (error) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath)
+      }
+    } catch (cleanupError) {
+      void cleanupError
+    }
+    throw error
+  }
 }
 
 function writeJsonIfChanged(filePath, value) {
@@ -192,10 +236,33 @@ function writeLocalSnapshotStore(storePath, snapshots) {
     }
   }
 
-  writeJsonIfChanged(path.join(storePath, 'index.json'), manifest)
+  const writeFileSafely = (targetPath, value) => {
+    try {
+      writeJsonIfChanged(targetPath, value)
+      return true
+    } catch (error) {
+      const code = error && typeof error === 'object' ? error.code : ''
+      if (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
+        try {
+          writeTextAtomic(targetPath, `${JSON.stringify(value, null, 2)}\n`)
+          return true
+        } catch (atomicError) {
+          const atomicCode = atomicError && typeof atomicError === 'object' ? atomicError.code : ''
+          if (atomicCode === 'EPERM' || atomicCode === 'EACCES' || atomicCode === 'EBUSY') {
+            console.warn(`无法写入本地快照文件：${targetPath}。将保留现有文件继续生成页面。`)
+            return false
+          }
+          throw atomicError
+        }
+      }
+      throw error
+    }
+  }
+
+  writeFileSafely(path.join(storePath, 'index.json'), manifest)
 
   for (const snapshot of sorted) {
-    writeJsonIfChanged(path.join(storePath, `${snapshot.snapshotDate}.json`), snapshot)
+    writeFileSafely(path.join(storePath, `${snapshot.snapshotDate}.json`), snapshot)
   }
 
   return manifest
@@ -252,8 +319,23 @@ function injectSnapshotsIntoScript(script, snapshots) {
   return `${script.slice(0, startIndex)}${block}${script.slice(endIndex + endToken.length)}`
 }
 
-function loadTemplateHtml(templatePath = DEFAULT_TEMPLATE_PATH) {
-  return fs.readFileSync(templatePath, 'utf8').replace(/\\r\\n/g, '\\n')
+function formatErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error || 'unknown error')
+}
+
+function resolveDashboardTemplatePath(templatePath) {
+  const candidate = templatePath || process.env.DASHBOARD_TEMPLATE_PATH || DEFAULT_TEMPLATE_PATH
+  return path.isAbsolute(candidate) ? candidate : path.resolve(__dirname, '..', candidate)
+}
+
+function loadTemplateHtml(templatePath) {
+  const resolvedPath = resolveDashboardTemplatePath(templatePath)
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`找不到运维看板模板文件：${resolvedPath}。请将模板放到项目内 templates\\ops\\dashboard-template.html，或通过 DASHBOARD_TEMPLATE_PATH 指定模板路径。`)
+  }
+
+  return fs.readFileSync(resolvedPath, 'utf8').replace(/\r\n/g, '\n')
 }
 
 function buildRuntimeScript() {
@@ -262,38 +344,199 @@ function buildRuntimeScript() {
 }
 function injectDesktopTemplateShell(html) {
   const stylesheetSnippet = `
-    .snapshot-picker {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0 11px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: #fff;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1;
-    }
-
-    .snapshot-picker label {
-      white-space: nowrap;
-    }
-
-    .snapshot-picker select {
-      min-width: 132px;
-      border: 0;
-      outline: 0;
-      background: transparent;
-      color: var(--text);
-      font-size: 13px;
-      cursor: pointer;
-    }
-
     .snapshot-note {
       margin-top: 8px;
       color: var(--muted);
       font-size: 12px;
       line-height: 1.45;
+    }
+
+    .snapshot-picker {
+      position: relative;
+      display: inline-flex;
+      align-items: flex-start;
+      gap: 8px;
+      max-width: 100%;
+      --day-size: 42px;
+    }
+
+    .snapshot-picker-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .snapshot-picker-label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .snapshot-month-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 32px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+
+    .snapshot-month-toggle:hover {
+      border-color: rgba(42, 105, 199, 0.35);
+      color: var(--blue);
+    }
+
+    .snapshot-month-toggle:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .snapshot-month-arrow {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1;
+      transition: transform 0.15s ease;
+    }
+
+    .snapshot-picker.open .snapshot-month-arrow {
+      transform: rotate(180deg);
+    }
+
+    .snapshot-picker-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 12;
+      width: min(420px, calc(100vw - 32px));
+      max-height: min(72vh, 680px);
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 14px 42px rgba(16, 24, 20, 0.12);
+    }
+
+    .snapshot-month-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .snapshot-month-item {
+      min-width: 96px;
+      height: 30px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .snapshot-month-item:hover {
+      border-color: rgba(31, 122, 90, 0.32);
+      color: var(--green);
+    }
+
+    .snapshot-month-item.active {
+      border-color: rgba(42, 105, 199, 0.45);
+      background: rgba(42, 105, 199, 0.08);
+      color: var(--blue);
+      font-weight: 600;
+    }
+
+    .snapshot-month-item:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .calendar-head,
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, var(--day-size));
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .calendar-weekday {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 18px;
+      text-align: center;
+    }
+
+    .calendar-cell {
+      width: var(--day-size);
+      height: var(--day-size);
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: #fff;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 0;
+      font-size: 12px;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+
+    .calendar-cell.empty {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .calendar-cell.available:hover {
+      border-color: rgba(42, 105, 199, 0.38);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(42, 105, 199, 0.10);
+    }
+
+    .calendar-cell.disabled {
+      background: #f6f7f8;
+      color: #bcc4c0;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .calendar-cell.active {
+      border-color: rgba(42, 105, 199, 0.55);
+      background: rgba(42, 105, 199, 0.10);
+      color: var(--blue);
+    }
+
+    .calendar-cell:focus-visible {
+      outline: 2px solid rgba(42, 105, 199, 0.26);
+      outline-offset: 2px;
+    }
+
+    .calendar-day {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .calendar-dot {
+      display: none;
+    }
+
+    .calendar-empty {
+      padding: 10px 0 2px;
+      color: var(--muted);
+      font-size: 13px;
     }
 
     .refresh-btn {
@@ -318,6 +561,24 @@ function injectDesktopTemplateShell(html) {
     .refresh-btn:disabled {
       opacity: 0.6;
       cursor: wait;
+    }
+
+    @media (max-width: 640px) {
+      .snapshot-picker {
+        --day-size: 38px;
+      }
+
+      .snapshot-picker-panel {
+        left: 0;
+        right: auto;
+        width: min(100vw - 24px, 420px);
+      }
+    }
+
+    @media (max-width: 420px) {
+      .snapshot-picker {
+        --day-size: 34px;
+      }
     }
 
     .tag.done {
@@ -360,9 +621,18 @@ function injectDesktopTemplateShell(html) {
           <div class="snapshot-note" id="snapshotNote">离线日报快照</div>
         </div>
         <div class="meta-row">
-          <div class="snapshot-picker">
-            <label for="snapshotDateSelect">查看日期</label>
-            <select id="snapshotDateSelect" aria-label="选择快照日期"></select>
+          <div class="snapshot-picker" id="snapshotPicker">
+            <div class="snapshot-picker-bar">
+              <span class="snapshot-picker-label">查看月份</span>
+              <button class="snapshot-month-toggle" id="snapshotMonthToggle" type="button" aria-expanded="false" aria-controls="snapshotPickerPanel">
+                <span class="snapshot-month-label" id="snapshotMonthLabel">暂无本地快照</span>
+                <span class="snapshot-month-arrow" aria-hidden="true">▾</span>
+              </button>
+            </div>
+            <div class="snapshot-picker-panel" id="snapshotPickerPanel" hidden>
+              <div class="snapshot-month-list" id="snapshotMonthList"></div>
+              <div id="snapshotCalendar" aria-label="日期日历"></div>
+            </div>
           </div>
           <button class="refresh-btn" id="refreshDataBtn" type="button">更新数据</button>
           <span class="meta-chip" id="snapshotUpdatedAt">更新时间 -</span>
@@ -384,9 +654,12 @@ function readAllDocuments(collection, pageSize = 500) {
   const documents = []
   const baseQuery = typeof collection.where === 'function' ? collection.where({}) : collection
   const canPaginate = typeof baseQuery.skip === 'function' && typeof baseQuery.limit === 'function'
+  const applyTimeout = (query) => (typeof query.options === 'function'
+    ? query.options({ timeout: DEFAULT_SNAPSHOT_READ_TIMEOUT_MS })
+    : query)
 
   if (!canPaginate) {
-    return baseQuery.get().then((response) => (Array.isArray(response.data) ? response.data : []))
+    return applyTimeout(baseQuery).get().then((response) => (Array.isArray(response.data) ? response.data : []))
   }
 
   return (async () => {
@@ -400,6 +673,7 @@ function readAllDocuments(collection, pageSize = 500) {
       }
 
       query = query.limit(pageSize)
+      query = applyTimeout(query)
 
       const response = await query.get()
       const pageData = Array.isArray(response.data) ? response.data : []
@@ -421,8 +695,46 @@ async function readSnapshotsFromDatabase(db) {
   return sortSnapshots(await readAllDocuments(collection))
 }
 
-async function loadEmbeddedSnapshots() {
-  return []
+async function loadEmbeddedSnapshots(snapshotStorePath = DEFAULT_SNAPSHOT_STORE_DIR) {
+  if (!snapshotStorePath || !fs.existsSync(snapshotStorePath)) {
+    return []
+  }
+
+  const indexPath = path.join(snapshotStorePath, 'index.json')
+  let snapshotDates = []
+
+  if (fs.existsSync(indexPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(indexPath, 'utf8'))
+      if (Array.isArray(manifest.snapshotDates) && manifest.snapshotDates.length) {
+        snapshotDates = manifest.snapshotDates.slice()
+      }
+    } catch (error) {
+      snapshotDates = []
+    }
+  }
+
+  if (!snapshotDates.length) {
+    snapshotDates = fs.readdirSync(snapshotStorePath)
+      .filter((entry) => /^\d{4}-\d{2}-\d{2}\.json$/i.test(entry))
+      .map((entry) => entry.replace(/\.json$/i, ''))
+  }
+
+  const snapshots = []
+  for (const snapshotDate of snapshotDates) {
+    const filePath = path.join(snapshotStorePath, `${snapshotDate}.json`)
+    if (!fs.existsSync(filePath)) {
+      continue
+    }
+
+    try {
+      snapshots.push(JSON.parse(fs.readFileSync(filePath, 'utf8')))
+    } catch (error) {
+      continue
+    }
+  }
+
+  return sortSnapshots(snapshots)
 }
 
 function writeOutputHtml(outputPath, html) {
@@ -433,9 +745,11 @@ function writeOutputHtml(outputPath, html) {
   } catch (error) {
     const code = error && typeof error === 'object' ? error.code : ''
     if (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
-      const fallbackPath = outputPath.replace(/\.html$/i, `.generated${Date.now()}.html`)
-      writeTextIfChanged(fallbackPath, html)
+      const fallbackDir = process.env.DASHBOARD_OUTPUT_FALLBACK_DIR || os.tmpdir()
+      const fallbackPath = path.join(fallbackDir, `dashboard-daily-${Date.now()}.html`)
+      writeTextAtomic(fallbackPath, html)
       lastWrittenOutputPath = fallbackPath
+      console.warn(`无法写入输出文件：${outputPath}。已改写到临时文件：${fallbackPath}`)
       return fallbackPath
     }
 
@@ -458,24 +772,26 @@ async function generateDashboardFile({
 }
 
 async function main() {
-  const templatePath = DEFAULT_TEMPLATE_PATH
+  const templatePath = resolveDashboardTemplatePath()
   const outputPath = DEFAULT_OUTPUT_PATH
   const snapshotStorePath = DEFAULT_SNAPSHOT_STORE_DIR
   let snapshots
-  let source = 'embedded'
+  let source = 'cloud'
   let manifest
 
   try {
     const cloudbase = resolveCloudbaseSdk()
     const options = resolveCloudbaseOptions()
-    const app = cloudbase.init(options)
+    const app = cloudbase.init({
+      ...options,
+      timeout: DEFAULT_SNAPSHOT_READ_TIMEOUT_MS,
+    })
     snapshots = await readSnapshotsFromDatabase(app.database())
     manifest = buildSnapshotManifest(snapshots)
-    source = 'cloud'
   } catch (error) {
-    snapshots = await loadEmbeddedSnapshots()
+    snapshots = await loadEmbeddedSnapshots(snapshotStorePath)
     manifest = buildSnapshotManifest(snapshots)
-    source = 'embedded-empty'
+    source = snapshots.length ? 'local-fallback' : 'cloud-unavailable'
   }
 
   await generateDashboardFile({ templatePath, outputPath, snapshotStorePath, snapshots })
@@ -515,6 +831,7 @@ module.exports = {
   readAllDocuments,
   readSnapshotsFromDatabase,
   replaceOnce,
+  resolveDashboardTemplatePath,
   resolveCloudbaseOptions,
   resolveCloudbaseSdk,
   sortSnapshots,

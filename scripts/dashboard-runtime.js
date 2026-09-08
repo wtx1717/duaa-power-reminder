@@ -10,6 +10,7 @@ const REFRESH_API_URL = `${API_BASE_URL}/api/refresh`;
 const TYPE_LABEL = { light: '照明', ac: '空调' };
 const STATE_LABEL = { normal: '正常', warn: '预警', monitor: '待检查', error: '异常' };
 const JOB_STATUS_LABEL = { pending: '待执行', running: '执行中', done: '已完成', failed: '失败', expired: '已过期' };
+const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
 
 function pad2(value) {
   return String(value).padStart(2, '0');
@@ -112,11 +113,80 @@ function normalizeManifest(manifest) {
   };
 }
 
+function getMonthKey(snapshotDate) {
+  return String(snapshotDate || '').slice(0, 7);
+}
+
+function formatMonthLabel(monthKey) {
+  const [year, month] = String(monthKey || '').split('-');
+  if (!year || !month) return String(monthKey || '');
+  return `${year}年${Number(month)}月`;
+}
+
+function getDaysInMonth(monthKey) {
+  const [year, month] = String(monthKey || '').split('-').map((value) => Number(value));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return 0;
+  }
+  return new Date(year, month, 0).getDate();
+}
+
+function getCalendarStartOffset(year, month) {
+  const weekday = new Date(year, month - 1, 1).getDay();
+  return (weekday + 6) % 7;
+}
+
+function buildSnapshotCatalog(entries) {
+  const monthMap = new Map();
+  const dateMap = new Map();
+  const months = [];
+
+  for (const item of entries || []) {
+    if (!item || !item.snapshotDate) {
+      continue;
+    }
+
+    const snapshotDate = String(item.snapshotDate).trim();
+    const monthKey = getMonthKey(snapshotDate);
+    if (!monthKey) {
+      continue;
+    }
+
+    dateMap.set(snapshotDate, item);
+
+    if (!monthMap.has(monthKey)) {
+      const [year, month] = monthKey.split('-').map((value) => Number(value));
+      const monthState = {
+        monthKey,
+        label: formatMonthLabel(monthKey),
+        year,
+        month,
+        daysInMonth: getDaysInMonth(monthKey),
+        defaultSnapshotDate: snapshotDate,
+        availableDates: [],
+      };
+      monthMap.set(monthKey, monthState);
+      months.push(monthState);
+    }
+
+    const monthState = monthMap.get(monthKey);
+    monthState.availableDates.push(snapshotDate);
+  }
+
+  return {
+    dateMap,
+    monthMap,
+    months,
+  };
+}
+
 (function main() {
   const state = {
     manifest: normalizeManifest({ entries: [] }),
     dashboard: snapshotToDashboard(null),
     activeSnapshotDate: '',
+    activeMonth: '',
+    snapshotPickerOpen: false,
     activeMeterId: '',
     activeDetailTab: 'query',
     pagerState: { page: 1, pageSize: 100 },
@@ -130,7 +200,12 @@ function normalizeManifest(manifest) {
   const mailStatusLabel = { sent: '已发送', failed: '发送失败', pending: '待发送', skipped: '已跳过' };
   const mailChannelLabel = { email: '邮件' };
 
-  const snapshotDateSelect = document.getElementById('snapshotDateSelect');
+  const snapshotPicker = document.getElementById('snapshotPicker');
+  const snapshotMonthToggle = document.getElementById('snapshotMonthToggle');
+  const snapshotMonthLabel = document.getElementById('snapshotMonthLabel');
+  const snapshotPickerPanel = document.getElementById('snapshotPickerPanel');
+  const snapshotMonthList = document.getElementById('snapshotMonthList');
+  const snapshotCalendar = document.getElementById('snapshotCalendar');
   const snapshotUpdatedAt = document.getElementById('snapshotUpdatedAt');
   const snapshotNote = document.getElementById('snapshotNote');
   const refreshDataBtn = document.getElementById('refreshDataBtn');
@@ -170,6 +245,62 @@ function normalizeManifest(manifest) {
       || '';
   }
 
+  function getCatalog() {
+    return buildSnapshotCatalog(state.manifest.entries || []);
+  }
+
+  function getDefaultMonth(months, snapshotDate) {
+    const targetMonth = getMonthKey(snapshotDate);
+    if (targetMonth && months.some((item) => item.monthKey === targetMonth)) {
+      return targetMonth;
+    }
+    return months[0] ? months[0].monthKey : '';
+  }
+
+  function getMonthAvailableDates(monthState) {
+    return new Set((monthState && monthState.availableDates) || []);
+  }
+
+  function getSafeActiveSnapshotDate(monthState, preferredDate) {
+    if (!monthState) return '';
+    const availableDates = getMonthAvailableDates(monthState);
+    const preferred = String(preferredDate || '').trim();
+    if (preferred && availableDates.has(preferred)) {
+      return preferred;
+    }
+    if (monthState.defaultSnapshotDate && availableDates.has(monthState.defaultSnapshotDate)) {
+      return monthState.defaultSnapshotDate;
+    }
+    return monthState.availableDates[0] || '';
+  }
+
+  function getCalendarCells(monthState) {
+    if (!monthState || !monthState.monthKey) return [];
+    const startOffset = getCalendarStartOffset(monthState.year, monthState.month);
+    const totalDays = monthState.daysInMonth;
+    const availableDates = getMonthAvailableDates(monthState);
+    const cells = [];
+
+    for (let index = 0; index < 42; index += 1) {
+      const dayNumber = index - startOffset + 1;
+      if (dayNumber < 1 || dayNumber > totalDays) {
+        cells.push({ empty: true });
+        continue;
+      }
+
+      const day = pad2(dayNumber);
+      const snapshotDate = `${monthState.monthKey}-${day}`;
+      cells.push({
+        empty: false,
+        dayNumber,
+        snapshotDate,
+        hasSnapshot: availableDates.has(snapshotDate),
+      });
+    }
+
+    return cells;
+  }
+
   function setRefreshMessage(message) {
     state.refreshMessage = message || '本地离线模式';
     renderControlState();
@@ -181,18 +312,74 @@ function normalizeManifest(manifest) {
     refreshDataBtn.textContent = state.refreshing ? '更新中...' : '更新数据';
   }
 
-  function renderSnapshotSelector() {
-    const entries = state.manifest.entries || [];
-    if (!entries.length) {
-      snapshotDateSelect.innerHTML = '<option value="">暂无本地快照</option>';
-      snapshotDateSelect.disabled = true;
-      snapshotDateSelect.value = '';
+  function renderSnapshotCalendar() {
+    const catalog = getCatalog();
+    const months = catalog.months || [];
+
+    if (!months.length) {
+      snapshotMonthToggle.disabled = true;
+      snapshotMonthToggle.setAttribute('aria-expanded', 'false');
+      snapshotMonthLabel.textContent = '暂无本地快照';
+      snapshotPicker.classList.remove('open');
+      snapshotPickerPanel.hidden = true;
+      snapshotMonthList.innerHTML = '';
+      snapshotCalendar.innerHTML = '<div class="calendar-empty">暂无本地快照</div>';
       return;
     }
 
-    snapshotDateSelect.disabled = false;
-    snapshotDateSelect.innerHTML = entries.map((item) => `<option value="${item.snapshotDate}">${escapeHtml(item.snapshotDate)}</option>`).join('');
-    snapshotDateSelect.value = state.activeSnapshotDate || getDefaultSnapshotDate(state.manifest) || entries[0].snapshotDate;
+    const fallbackDate = getDefaultSnapshotDate(state.manifest);
+    const defaultMonth = getDefaultMonth(months, state.activeSnapshotDate || fallbackDate);
+    state.activeMonth = months.some((item) => item.monthKey === state.activeMonth) ? state.activeMonth : defaultMonth;
+    const activeMonthKey = state.activeMonth || defaultMonth || months[0].monthKey;
+    const monthState = catalog.monthMap.get(activeMonthKey);
+    const activeDate = getSafeActiveSnapshotDate(monthState, state.activeSnapshotDate || fallbackDate);
+    state.activeSnapshotDate = activeDate;
+    state.activeMonth = activeMonthKey;
+
+    snapshotMonthToggle.disabled = false;
+    snapshotMonthToggle.setAttribute('aria-expanded', String(Boolean(state.snapshotPickerOpen)));
+    snapshotMonthLabel.textContent = monthState ? monthState.label : '';
+    snapshotPicker.classList.toggle('open', Boolean(state.snapshotPickerOpen));
+    snapshotPickerPanel.hidden = !state.snapshotPickerOpen;
+    snapshotMonthList.innerHTML = months.map((item) => `
+      <button
+        class="snapshot-month-item ${item.monthKey === state.activeMonth ? 'active' : ''}"
+        type="button"
+        data-month-key="${escapeHtml(item.monthKey)}"
+        aria-pressed="${item.monthKey === state.activeMonth ? 'true' : 'false'}"
+      >
+        ${escapeHtml(item.label)}
+      </button>
+    `).join('');
+
+    const cells = getCalendarCells(monthState);
+    snapshotCalendar.innerHTML = `
+      <div class="calendar-head">
+        ${WEEKDAY_LABELS.map((label) => `<span class="calendar-weekday">${label}</span>`).join('')}
+      </div>
+      <div class="calendar-grid">
+        ${cells.map((cell) => {
+          if (cell.empty) {
+            return '<button class="calendar-cell empty" type="button" disabled></button>';
+          }
+          const isActive = cell.snapshotDate === state.activeSnapshotDate;
+          const isAvailable = cell.hasSnapshot;
+          return `
+            <button
+            class="calendar-cell ${isAvailable ? 'available' : 'disabled'} ${isActive ? 'active' : ''}"
+              type="button"
+              data-snapshot-date="${escapeHtml(cell.snapshotDate)}"
+              title="${isAvailable ? '点击查看该日快照' : '当天没有快照'}"
+              aria-label="${escapeHtml(`${cell.snapshotDate}${isAvailable ? '，有快照' : '，无快照'}`)}"
+              ${isAvailable ? '' : 'disabled'}
+            >
+              <span class="calendar-day">${cell.dayNumber}</span>
+              <span class="calendar-dot">${isAvailable ? '有' : '无'}</span>
+            </button>
+          `;
+        }).join('')}
+      </div>
+    `;
   }
 
   function renderHeaderMeta() {
@@ -354,7 +541,7 @@ function normalizeManifest(manifest) {
 
   function renderAll() {
     const meters = getSortedMeters();
-    renderSnapshotSelector();
+    renderSnapshotCalendar();
     renderHeaderMeta();
     renderControlState();
     renderKpis();
@@ -383,11 +570,37 @@ function normalizeManifest(manifest) {
     return snapshot;
   }
 
+  function getMonthState(monthKey) {
+    const catalog = getCatalog();
+    return catalog.monthMap.get(String(monthKey || '').trim()) || null;
+  }
+
+  async function selectMonth(monthKey) {
+    const nextMonthKey = String(monthKey || '').trim();
+    const monthState = getMonthState(nextMonthKey);
+    if (!monthState) {
+      renderSnapshotCalendar();
+      return;
+    }
+
+    state.snapshotPickerOpen = false;
+    state.activeMonth = nextMonthKey;
+    const targetDate = getSafeActiveSnapshotDate(monthState, state.activeSnapshotDate || getDefaultSnapshotDate(state.manifest));
+    if (targetDate) {
+      await selectSnapshot(targetDate);
+      return;
+    }
+
+    renderSnapshotCalendar();
+  }
+
   async function selectSnapshot(snapshotDate) {
     const nextSnapshotDate = String(snapshotDate || '').trim();
     if (!nextSnapshotDate) {
       state.dashboard = snapshotToDashboard(null);
       state.activeSnapshotDate = '';
+      state.activeMonth = '';
+      state.snapshotPickerOpen = false;
       state.loadError = '';
       state.activeMeterId = '';
       state.activeDetailTab = 'query';
@@ -403,6 +616,8 @@ function normalizeManifest(manifest) {
 
       state.dashboard = snapshotToDashboard(snapshot);
       state.activeSnapshotDate = nextSnapshotDate;
+      state.activeMonth = getMonthKey(nextSnapshotDate);
+      state.snapshotPickerOpen = false;
       state.loadError = '';
       state.activeMeterId = '';
       state.activeDetailTab = 'query';
@@ -412,6 +627,8 @@ function normalizeManifest(manifest) {
     } catch (error) {
       state.dashboard = snapshotToDashboard(null);
       state.activeSnapshotDate = '';
+      state.activeMonth = '';
+      state.snapshotPickerOpen = false;
       state.loadError = error instanceof Error ? error.message : String(error);
       state.activeMeterId = '';
       state.activeDetailTab = 'query';
@@ -484,8 +701,36 @@ function normalizeManifest(manifest) {
     }
   }
 
-  snapshotDateSelect.addEventListener('change', () => {
-    void selectSnapshot(snapshotDateSelect.value);
+  snapshotMonthToggle.addEventListener('click', () => {
+    if (snapshotMonthToggle.disabled) {
+      return;
+    }
+    state.snapshotPickerOpen = !state.snapshotPickerOpen;
+    renderSnapshotCalendar();
+  });
+
+  snapshotMonthList.addEventListener('click', (event) => {
+    const button = event.target.closest('.snapshot-month-item');
+    if (!button || button.disabled || !button.dataset.monthKey) {
+      return;
+    }
+    void selectMonth(button.dataset.monthKey);
+  });
+
+  snapshotCalendar.addEventListener('click', (event) => {
+    const cell = event.target.closest('.calendar-cell');
+    if (!cell || cell.disabled || !cell.dataset.snapshotDate) {
+      return;
+    }
+    void selectSnapshot(cell.dataset.snapshotDate);
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!state.snapshotPickerOpen || !snapshotPicker || snapshotPicker.contains(event.target)) {
+      return;
+    }
+    state.snapshotPickerOpen = false;
+    renderSnapshotCalendar();
   });
 
   refreshDataBtn.addEventListener('click', () => {
@@ -542,6 +787,11 @@ function normalizeManifest(manifest) {
     }
   });
   document.addEventListener('keydown', (event) => {
+    if (state.snapshotPickerOpen && event.key === 'Escape') {
+      state.snapshotPickerOpen = false;
+      renderSnapshotCalendar();
+      return;
+    }
     if (!meterDetailMask.hidden && event.key === 'Escape') closeMeterDetail();
   });
 

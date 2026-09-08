@@ -68,6 +68,13 @@ function readRefreshSummary() {
   }
 }
 
+function summarizeCommandError(error) {
+  const message = error instanceof Error ? error.message : String(error || '未知错误')
+  const stderr = error && typeof error.stderr === 'string' ? error.stderr.trim() : ''
+  const firstStderrLine = stderr.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
+  return firstStderrLine ? `${message}：${firstStderrLine}` : message
+}
+
 function spawnRefreshCommand() {
   const command = process.platform === 'win32'
     ? 'cmd.exe'
@@ -168,7 +175,7 @@ async function handleRefresh(res) {
     })
   } catch (error) {
     refreshState.finishedAt = new Date().toISOString()
-    refreshState.lastError = error instanceof Error ? error.message : String(error)
+    refreshState.lastError = summarizeCommandError(error)
 
     sendJson(res, 500, {
       ok: false,
@@ -249,4 +256,3 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`dashboard preview server listening on http://${HOST}:${PORT}`)
 })
-

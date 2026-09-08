@@ -28,7 +28,8 @@ function testSortSnapshots() {
 
 function testTemplatePath() {
   const html = loadTemplateHtml(DEFAULT_TEMPLATE_PATH)
-  assert(html.includes('运维看板预览') || html.includes('宿舍电量运维看板'), 'template should load from the desktop file')
+  assert(html.includes('运维看板预览') || html.includes('宿舍电量运维看板'), 'template should load from the project file')
+  assert(fs.existsSync(DEFAULT_TEMPLATE_PATH), 'template should exist in the project templates directory')
 }
 
 function testDotEnvParsing() {
@@ -79,7 +80,9 @@ async function testGenerateDashboardFile() {
   assert(fs.existsSync(path.join(snapshotStorePath, '2026-09-04.json')), 'daily snapshot json should be written')
   assert(!fs.existsSync(path.join(snapshotStorePath, 'index.js')), 'snapshot js wrappers should not be written')
   assert(!fs.existsSync(path.join(snapshotStorePath, '2026-09-04.js')), 'daily snapshot js wrappers should not be written')
-  assert(rendered.includes('snapshotDateSelect'), 'generated html should include snapshot selector')
+  assert(rendered.includes('snapshotMonthToggle'), 'generated html should include month toggle')
+  assert(rendered.includes('snapshotMonthList'), 'generated html should include month list')
+  assert(rendered.includes('snapshotCalendar'), 'generated html should include calendar selector')
   assert(rendered.includes('refreshDataBtn'), 'generated html should include refresh button')
   assert(rendered.includes('jobTable'), 'generated html should include job table')
   assert(!rendered.includes('const dashboardSnapshots = ['), 'generated html should not embed full snapshot data')
@@ -89,13 +92,18 @@ async function testGenerateDashboardFile() {
   fs.rmSync(snapshotStorePath, { recursive: true, force: true })
 }
 
+function testTemplatePathResolution() {
+  const resolved = require('./generate-dashboard-daily').resolveDashboardTemplatePath()
+  assert.strictEqual(resolved, DEFAULT_TEMPLATE_PATH)
+}
+
 function testSnapshotManifest() {
   const manifest = buildSnapshotManifest([
     { snapshotDate: '2026-09-04', status: 'success', generatedAt: '2026-09-04T15:00:00.000Z' },
     { snapshotDate: '2026-09-05', status: 'partial', generatedAt: '2026-09-05T15:00:00.000Z' },
   ])
 
-  assert.strictEqual(manifest.defaultSnapshotDate, '2026-09-05')
+  assert.strictEqual(manifest.defaultSnapshotDate, '2026-09-04')
   assert.strictEqual(manifest.snapshotCount, 2)
   assert.deepStrictEqual(manifest.snapshotDates, ['2026-09-05', '2026-09-04'])
 }
@@ -103,6 +111,7 @@ function testSnapshotManifest() {
 async function main() {
   testSortSnapshots()
   testTemplatePath()
+  testTemplatePathResolution()
   testDotEnvParsing()
   testDotEnvFileLoading()
   testSnapshotManifest()
