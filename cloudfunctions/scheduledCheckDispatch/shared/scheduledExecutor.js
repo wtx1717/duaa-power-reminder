@@ -258,7 +258,9 @@ function calculateScheduleState(input) {
   const previousEstimate = normalizeEstimatedDailyUsageKwh(meter.estimatedDailyUsageKwh)
   let estimatedDailyUsageKwh = previousEstimate
   let rechargeDetected = false
-  let scheduleMode = previousMode === 'notified' ? 'notified' : 'normal'
+  let scheduleMode = ['normal', 'near_threshold', 'notified'].includes(previousMode)
+    ? previousMode
+    : 'normal'
   let nextCheckAt = new Date(now.getTime() + normalizeCheckIntervalMinutes(meter.checkIntervalMinutes) * 60 * 1000)
   let lastRechargeDetectedAt = meter.lastRechargeDetectedAt
   let lowPowerNotifiedAt = meter.lowPowerNotifiedAt

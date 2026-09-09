@@ -11,6 +11,7 @@ const TYPE_LABEL = { light: '照明', ac: '空调' };
 const STATE_LABEL = { normal: '正常', warn: '预警', monitor: '待检查', error: '异常' };
 const JOB_STATUS_LABEL = { pending: '待执行', running: '执行中', done: '已完成', failed: '失败', expired: '已过期' };
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
+const DETAIL_HISTORY_DAYS = 7;
 
 function pad2(value) {
   return String(value).padStart(2, '0');
@@ -115,6 +116,31 @@ function normalizeManifest(manifest) {
 
 function getMonthKey(snapshotDate) {
   return String(snapshotDate || '').slice(0, 7);
+}
+
+function parseSnapshotDate(snapshotDate) {
+  const match = String(snapshotDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+
+  return Date.UTC(year, month - 1, day);
+}
+
+function formatSnapshotDateFromTime(value) {
+  const date = new Date(value);
+  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`;
+}
+
+function parseRecordTime(value) {
+  if (!value) return 0;
+  const parsed = new Date(String(value).replace(' ', 'T')).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function formatMonthLabel(monthKey) {
@@ -272,6 +298,50 @@ function buildSnapshotCatalog(entries) {
       return monthState.defaultSnapshotDate;
     }
     return monthState.availableDates[0] || '';
+  }
+
+  function getRecentSnapshotDates(anchorDate, days = DETAIL_HISTORY_DAYS) {
+    const anchorTime = parseSnapshotDate(anchorDate);
+    if (anchorTime === null) return [];
+
+    const availableDates = new Set(state.manifest.snapshotDates || []);
+    const dates = [];
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    for (let offset = 0; offset < days; offset += 1) {
+      const snapshotDate = formatSnapshotDateFromTime(anchorTime - offset * oneDayMs);
+      if (availableDates.has(snapshotDate)) {
+        dates.push(snapshotDate);
+      }
+    }
+
+    return dates;
+  }
+
+  async function loadRecentSnapshots(anchorDate) {
+    const dates = getRecentSnapshotDates(anchorDate);
+    const settled = await Promise.allSettled(dates.map((snapshotDate) => loadSnapshot(snapshotDate)));
+
+    return settled
+      .filter((item) => item.status === 'fulfilled' && item.value)
+      .map((item) => item.value);
+  }
+
+  async function loadMeterRecentDetailRecords(meterId) {
+    const snapshots = await loadRecentSnapshots(state.activeSnapshotDate);
+    const queryRecords = [];
+    const notifyRecords = [];
+
+    for (const snapshot of snapshots) {
+      const dashboard = snapshotToDashboard(snapshot);
+      queryRecords.push(...dashboard.powerRecords.filter((record) => String(record.meterId || '').trim() === meterId));
+      notifyRecords.push(...dashboard.notificationRecords.filter((record) => String(record.meterId || '').trim() === meterId));
+    }
+
+    queryRecords.sort((left, right) => parseRecordTime(right.queriedAt) - parseRecordTime(left.queriedAt));
+    notifyRecords.sort((left, right) => parseRecordTime(right.sentAt) - parseRecordTime(left.sentAt));
+
+    return { queryRecords, notifyRecords };
   }
 
   function getCalendarCells(monthState) {
@@ -480,25 +550,25 @@ function buildSnapshotCatalog(entries) {
       : '<tr><td colspan="8">当前快照没有任务记录。</td></tr>';
   }
 
-  function renderDetail(item) {
-    const queryRecords = state.dashboard.powerRecords
-      .filter((record) => record.meterId === item.id)
-      .slice()
-      .sort((left, right) => String(right.queriedAt).localeCompare(String(left.queriedAt)));
-    const notifyRecords = state.dashboard.notificationRecords
-      .filter((record) => record.meterId === item.id)
-      .slice()
-      .sort((left, right) => String(right.sentAt).localeCompare(String(left.sentAt)));
-
+  function renderDetailShell(item, subtitle) {
     meterDetailTitle.textContent = `${item.id} 电表详情`;
-    meterDetailSubtitle.textContent = `当前状态：${item.statusText}，查询记录 ${queryRecords.length} 条，提醒记录 ${notifyRecords.length} 条。`;
+    meterDetailSubtitle.textContent = subtitle;
     meterDetailSummary.innerHTML = `
       <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">当前电量</div><div class="meter-detail-summary-value">${escapeHtml(item.current)}</div></div>
       <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">日耗</div><div class="meter-detail-summary-value">${escapeHtml(item.daily)}</div></div>
       <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">失败次数</div><div class="meter-detail-summary-value">${escapeHtml(`${item.fail} 次`)}</div></div>
       <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">下次检查时间</div><div class="meter-detail-summary-value">${escapeHtml(item.next)}</div></div>
     `;
+  }
 
+  function renderDetailTabs() {
+    meterDetailQueryTab.classList.toggle('active', state.activeDetailTab === 'query');
+    meterDetailNotifyTab.classList.toggle('active', state.activeDetailTab === 'notify');
+    meterDetailQueryPanel.hidden = state.activeDetailTab !== 'query';
+    meterDetailNotifyPanel.hidden = state.activeDetailTab !== 'notify';
+  }
+
+  function renderDetailRecords(queryRecords, notifyRecords) {
     meterDetailQueryPanel.innerHTML = queryRecords.length
       ? `<div class="meter-detail-record-list">${queryRecords.map((record) => `
         <article class="meter-detail-record ${record.ok ? '' : 'failed'}">
@@ -508,7 +578,7 @@ function buildSnapshotCatalog(entries) {
           <div><div class="meter-detail-record-label">详情</div><div class="meter-detail-record-note">来源：${escapeHtml(record.source || '-')} · 截止：${escapeHtml(record.cutoffTime || '-')} · 地址：${escapeHtml(record.address || '-')}</div></div>
         </article>
       `).join('')}</div>`
-      : '<div class="meter-detail-empty">当前电表没有相关记录。</div>';
+      : '<div class="meter-detail-empty">近 7 天没有查询记录。</div>';
 
     meterDetailNotifyPanel.innerHTML = notifyRecords.length
       ? `<div class="meter-detail-record-list">${notifyRecords.map((record) => `
@@ -519,19 +589,46 @@ function buildSnapshotCatalog(entries) {
           <div><div class="meter-detail-record-label">详情</div><div class="meter-detail-record-note">渠道：${escapeHtml(mailChannelLabel[record.channel] || record.channel)} · 来源：${escapeHtml(record.source || '-')}</div></div>
         </article>
       `).join('')}</div>`
-      : '<div class="meter-detail-empty">当前电表没有相关记录。</div>';
+      : '<div class="meter-detail-empty">近 7 天没有提醒通知。</div>';
 
-    meterDetailQueryTab.classList.toggle('active', state.activeDetailTab === 'query');
-    meterDetailNotifyTab.classList.toggle('active', state.activeDetailTab === 'notify');
-    meterDetailQueryPanel.hidden = state.activeDetailTab !== 'query';
-    meterDetailNotifyPanel.hidden = state.activeDetailTab !== 'notify';
+    renderDetailTabs();
+  }
+
+  function renderDetailLoading(item) {
+    renderDetailShell(item, `当前状态：${item.statusText}，正在加载近 7 天查询记录和提醒通知。`);
+    meterDetailQueryPanel.innerHTML = '<div class="meter-detail-empty">正在加载近 7 天查询记录...</div>';
+    meterDetailNotifyPanel.innerHTML = '<div class="meter-detail-empty">正在加载近 7 天提醒通知...</div>';
+    renderDetailTabs();
+  }
+
+  async function renderDetail(item) {
+    renderDetailLoading(item);
+
+    try {
+      const { queryRecords, notifyRecords } = await loadMeterRecentDetailRecords(item.id);
+      if (state.activeMeterId !== item.id || meterDetailMask.hidden) {
+        return;
+      }
+
+      renderDetailShell(item, `当前状态：${item.statusText}，近 7 天查询记录 ${queryRecords.length} 条，提醒记录 ${notifyRecords.length} 条。`);
+      renderDetailRecords(queryRecords, notifyRecords);
+    } catch (error) {
+      if (state.activeMeterId !== item.id || meterDetailMask.hidden) {
+        return;
+      }
+
+      renderDetailShell(item, `当前状态：${item.statusText}，近 7 天明细加载失败。`);
+      meterDetailQueryPanel.innerHTML = `<div class="meter-detail-empty">近 7 天查询记录加载失败：${escapeHtml(error instanceof Error ? error.message : String(error))}</div>`;
+      meterDetailNotifyPanel.innerHTML = `<div class="meter-detail-empty">近 7 天提醒通知加载失败：${escapeHtml(error instanceof Error ? error.message : String(error))}</div>`;
+      renderDetailTabs();
+    }
   }
 
   function openMeterDetail(item) {
     state.activeMeterId = item.id;
     state.activeDetailTab = 'query';
     meterDetailMask.hidden = false;
-    renderDetail(item);
+    void renderDetail(item);
   }
 
   function closeMeterDetail() {
@@ -774,17 +871,11 @@ function buildSnapshotCatalog(entries) {
   });
   meterDetailQueryTab.addEventListener('click', () => {
     state.activeDetailTab = 'query';
-    if (state.activeMeterId) {
-      const item = getSortedMeters().find((meter) => meter.id === state.activeMeterId);
-      if (item) renderDetail(item);
-    }
+    renderDetailTabs();
   });
   meterDetailNotifyTab.addEventListener('click', () => {
     state.activeDetailTab = 'notify';
-    if (state.activeMeterId) {
-      const item = getSortedMeters().find((meter) => meter.id === state.activeMeterId);
-      if (item) renderDetail(item);
-    }
+    renderDetailTabs();
   });
   document.addEventListener('keydown', (event) => {
     if (state.snapshotPickerOpen && event.key === 'Escape') {

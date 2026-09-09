@@ -3,7 +3,7 @@
     {
       "name": "scheduledDashboardSnapshotEveryNight",
       "type": "timer",
-      "config": "0 50 20 * * * *"
+      "config": "0 0 22 * * * *"
     }
   ]
 }
