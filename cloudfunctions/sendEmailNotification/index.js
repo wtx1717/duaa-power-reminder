@@ -1,3 +1,4 @@
+// sendEmailNotification 云函数：验证低电量提醒对象并通过 SMTP 发送邮件。
 const cloud = require('wx-server-sdk')
 const nodemailer = require('nodemailer')
 
@@ -17,6 +18,7 @@ cloud.init({
 })
 
 function normalizeEmail(value) {
+  // 邮箱统一清理后再与 user_configs 中的配置比较。
   return String(value || '').trim().toLowerCase()
 }
 
@@ -29,11 +31,13 @@ function normalizeType(value) {
 }
 
 function parseFiniteNumber(value) {
+  // Number('') 等特殊输入可能得到 0，因此还要用 isFinite 判断是否是真正数字。
   const number = Number(value)
   return Number.isFinite(number) ? number : undefined
 }
 
 function asDate(value) {
+  // 兼容 Date、云开发日期对象和字符串日期。
   if (!value) {
     return new Date()
   }
@@ -51,6 +55,7 @@ function asDate(value) {
 }
 
 function formatDateTime(value) {
+  // 优先使用 Intl 按配置时区格式化；运行环境不支持时回退到北京时间计算。
   const date = asDate(value)
   const timeZone = process.env.MAIL_TIME_ZONE || DEFAULT_MAIL_TIME_ZONE
 
@@ -81,6 +86,7 @@ function formatDateTime(value) {
 }
 
 function escapeHtml(value) {
+  // 邮件 HTML 中的用户/页面数据必须转义，避免破坏邮件结构。
   return String(value || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -94,6 +100,7 @@ function getMeterTypeLabel(type) {
 }
 
 function getSmtpConfig() {
+  // SMTP 密码只从环境变量读取，源码不保存授权码。
   const host = process.env.SMTP_HOST || DEFAULT_SMTP_HOST
   const port = Number(process.env.SMTP_PORT || DEFAULT_SMTP_PORT)
   const secureValue = process.env.SMTP_SECURE
@@ -121,6 +128,7 @@ function getSmtpConfig() {
 }
 
 function validateInput(event) {
+  // 这里返回 skipped 而不是抛错，因为“无需发送”是正常业务分支。
   const openid = String(event.openid || '').trim()
   const email = normalizeEmail(event.email)
   const meterId = String(event.meterId || '').trim()
@@ -168,6 +176,7 @@ function validateInput(event) {
 }
 
 async function assertConfiguredRecipient(db, input) {
+  // 再次确认用户仍绑定该邮箱和电表，防止旧任务给已解绑用户发邮件。
   const result = await db.collection(COLLECTIONS.userConfigs).where({
     openid: input.openid,
     email: input.email,
@@ -196,6 +205,7 @@ async function assertConfiguredRecipient(db, input) {
 }
 
 function createMail(input) {
+  // 同时生成纯文本和 HTML 两种正文，兼容不同邮件客户端。
   const typeLabel = getMeterTypeLabel(input.type)
   const timeText = formatDateTime(input.queriedAt)
   const addressText = input.address || '未解析到公寓地址'
@@ -248,6 +258,7 @@ function createMail(input) {
 }
 
 async function sendMail(input) {
+  // 创建一次 SMTP transporter 并发送邮件；配置缺失时返回 failed。
   const smtp = getSmtpConfig()
   if (!smtp.ok) {
     return {
@@ -284,6 +295,7 @@ async function sendMail(input) {
 }
 
 exports.main = async (event) => {
+  // 主流程：校验输入 -> 校验当前调用身份 -> 校验用户配置 -> 发送邮件。
   const input = validateInput(event || {})
 
   if (!input.ok) {

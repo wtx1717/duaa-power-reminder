@@ -1,3 +1,5 @@
+// 电表清理共享逻辑。
+// 只有当前用户解绑、且没有其他用户继续绑定、且没有运行中任务时，才会真正删除电表。
 const COLLECTIONS = {
   userConfigs: 'user_configs',
   meters: 'meters',
@@ -7,6 +9,7 @@ const COLLECTIONS = {
 const ACTIVE_JOB_STATUSES = new Set(['pending', 'running'])
 
 function getErrorDetails(error) {
+  // 将数据库 SDK 错误统一成可读文本，便于包装业务错误。
   if (error instanceof Error) {
     return error.message
   }
@@ -50,10 +53,12 @@ function isDocumentNotFoundError(error) {
 }
 
 function getBindingField(type) {
+  // 根据电表类型找到用户配置中对应的绑定字段。
   return type === 'ac' ? 'acMeterId' : 'lightMeterId'
 }
 
 async function findOtherBindings(db, target, openid) {
+  // 查询除当前用户外是否还有人绑定同一类型的同一块电表。
   const field = getBindingField(target.type)
 
   try {
@@ -74,6 +79,7 @@ async function getMeter(db, meterId) {
 }
 
 async function getMeterJobs(db, meterId) {
+  // 获取该电表的全部巡检任务；任务集合不存在时按没有任务处理。
   try {
     const result = await db.collection(COLLECTIONS.meterCheckJobs).where({ meterId }).get()
     return result.data
@@ -99,6 +105,7 @@ async function updateMeter(db, meter, data) {
 }
 
 async function expirePendingJobs(db, jobs) {
+  // 解绑后未开始执行的任务失去意义，统一标记为 expired，而不是物理删除历史。
   let expiredJobs = 0
 
   try {
@@ -125,6 +132,7 @@ async function expirePendingJobs(db, jobs) {
 }
 
 async function markCleanupPending(db, meter) {
+  // 有 running 任务时不能删除电表，先标记待清理，后续流程再处理。
   await updateMeter(db, meter, {
     cleanupPending: true,
     cleanupReason: '电表已解绑，存在运行中的调度任务',
@@ -149,6 +157,7 @@ async function removeMeter(db, meter) {
 }
 
 async function cleanMeter(db, target, openid) {
+  // 清理决策顺序很重要：先检查共享绑定，再检查运行任务，最后才删除电表。
   let otherBindings = await findOtherBindings(db, target, openid)
   if (otherBindings.length) {
     return { action: 'retained', expiredJobs: 0 }
@@ -160,6 +169,7 @@ async function cleanMeter(db, target, openid) {
   }
 
   let jobs = await getMeterJobs(db, target.meterId)
+  // running 任务可能仍在使用这块电表，因此只能标记 cleanupPending。
   if (jobs.some((job) => job.status === 'running')) {
     otherBindings = await findOtherBindings(db, target, openid)
     if (otherBindings.length) {

@@ -1,3 +1,5 @@
+// 手动查询限流测试。
+// 用假的 HTTPS 页面和 Mock 数据库验证冷却时间、并发抢占和双电表独立限流。
 const assert = require('assert')
 const EventEmitter = require('events')
 const Module = require('module')
@@ -98,6 +100,7 @@ function matchesQuery(document, query) {
 }
 
 function createHttpsMock(state) {
+  // 模拟 Node https.get，让云函数可以在没有真实学校网络的情况下解析固定 HTML。
   return {
     get(_url, _options, callback) {
       state.fetchCount += 1
@@ -175,6 +178,7 @@ function getManualQueryState(database) {
 }
 
 async function testSingleQueryAndCooldown() {
+  // 第一次查询成功，立即重复查询必须返回“操作过于频繁”。
   const database = new MockDatabase()
   const state = { fetchCount: 0, delayMs: 0 }
   const queryPower = loadQueryPower(database, state)
@@ -192,6 +196,7 @@ async function testSingleQueryAndCooldown() {
 }
 
 async function testConcurrentDuplicateQuery() {
+  // 两个同时到达的请求只能有一个成功抢到数据库条件更新。
   const database = new MockDatabase()
   const state = { fetchCount: 0, delayMs: 30 }
   const queryPower = loadQueryPower(database, state)
@@ -211,6 +216,7 @@ async function testConcurrentDuplicateQuery() {
 }
 
 async function testLightAndAcSameClick() {
+  // 照明和空调使用不同锁字段，同一时刻可以分别查询。
   const database = new MockDatabase()
   const state = { fetchCount: 0, delayMs: 0 }
   const queryPower = loadQueryPower(database, state)

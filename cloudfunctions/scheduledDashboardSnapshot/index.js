@@ -1,3 +1,4 @@
+// scheduledDashboardSnapshot 云函数：按北京时间汇总一天的运维数据并保存快照。
 const cloud = require('wx-server-sdk')
 
 const COLLECTIONS = {
@@ -46,6 +47,7 @@ cloud.init({
 })
 
 function asDate(value) {
+  // 兼容云开发日期对象、Date 和字符串日期。
   if (!value) {
     return undefined
   }
@@ -68,6 +70,7 @@ function isoOrEmpty(value) {
 }
 
 function getBeijingDateParts(value) {
+  // 先加 8 小时，再使用 UTC getter，避免依赖云函数服务器的本地时区。
   const date = asDate(value) || new Date()
   const beijingDate = new Date(date.getTime() + BEIJING_OFFSET_MS)
 
@@ -79,6 +82,7 @@ function getBeijingDateParts(value) {
 }
 
 function formatSnapshotDate(value) {
+  // 快照日期统一使用 YYYY-MM-DD，且优先接受调用方传入的合法日期。
   const parts = typeof value === 'string' && isValidSnapshotDate(value)
     ? { year: Number(value.slice(0, 4)), month: Number(value.slice(5, 7)) - 1, day: Number(value.slice(8, 10)) }
     : getBeijingDateParts(value)
@@ -87,6 +91,7 @@ function formatSnapshotDate(value) {
 }
 
 function isValidSnapshotDate(value) {
+  // 正则只能判断格式，这里再用 UTC Date 验证月份和日期确实存在。
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false
   }
@@ -107,6 +112,7 @@ function getSnapshotDate(value) {
 }
 
 function getBeijingDayRange(snapshotDate) {
+  // 把北京时间的一整天转换成 UTC 起止时间，供数据库筛选记录。
   if (!isValidSnapshotDate(snapshotDate)) {
     throw new Error(`无效的快照日期：${snapshotDate}`)
   }
@@ -121,6 +127,7 @@ function getBeijingDayRange(snapshotDate) {
 }
 
 function getMeterState(meter) {
+  // 看板状态按失败次数和剩余电量分级，error 优先级最高。
   if (Number(meter.failCount) >= 3 || Number(meter.lastRemainingKwh) <= 10) {
     return 'error'
   }
@@ -149,6 +156,7 @@ function sortByDateDesc(field) {
 }
 
 function groupByMeter(records) {
+  // 把平铺的查询/通知记录按 meterId 分组，方便生成每块电表的统计。
   return (Array.isArray(records) ? records : []).reduce((result, record) => {
     const meterId = String(record.meterId || '').trim()
     if (!meterId) {
@@ -164,6 +172,7 @@ function groupByMeter(records) {
 }
 
 function toMeterSnapshot(meter, queriesByMeter, notificationsByMeter) {
+  // 将数据库中的电表和当天记录转换成看板需要的标准字段。
   const meterId = String(meter.meterId || '').trim()
   const queries = (queriesByMeter[meterId] || []).slice().sort(sortByDateDesc('queriedAt'))
   const notifications = (notificationsByMeter[meterId] || []).slice().sort(sortByDateDesc('sentAt'))
@@ -200,6 +209,7 @@ function toMeterSnapshot(meter, queriesByMeter, notificationsByMeter) {
 }
 
 function normalizePowerRecord(record) {
+  // 删除数据库内部字段并统一日期、类型、数字和来源的格式。
   const type = record.type === 'ac' ? 'ac' : 'light'
   const result = {
     meterId: String(record.meterId || '').trim(),
@@ -256,6 +266,7 @@ function normalizeJobRecord(job) {
 }
 
 function buildStateCounts(meters) {
+  // reduce 把每块电表的状态转成四个计数器。
   return meters.reduce((counts, meter) => {
     counts[meter.state] += 1
     return counts
@@ -263,6 +274,7 @@ function buildStateCounts(meters) {
 }
 
 function buildKpis(userCount, meters, powerRecords, jobs, notifications, stateCounts) {
+  // 计算看板顶部 KPI；完成率没有任务时定义为 0%。
   const completedJobs = jobs.filter((job) => job.status === 'done').length
   const completionRate = jobs.length ? Math.round((completedJobs / jobs.length) * 100) : 0
 
@@ -287,6 +299,7 @@ function buildSummary(stateCounts) {
 }
 
 function sortMeters(meters) {
+  // 异常、预警、待检查优先显示，同状态内按下次检查时间排序。
   const stateOrder = { error: 0, warn: 1, monitor: 2, normal: 3 }
   return meters.slice().sort((left, right) => {
     const stateDiff = stateOrder[left.state] - stateOrder[right.state]
@@ -301,6 +314,7 @@ function isInRange(value, range) {
 }
 
 async function readCollection(db, collectionName, query = {}) {
+  // 分页读取集合，避免一次查询超过云数据库返回上限。
   const reference = db.collection(collectionName)
   const records = []
   let offset = 0
@@ -331,6 +345,7 @@ async function readCollection(db, collectionName, query = {}) {
 }
 
 async function readOptionalCollection(db, collectionName, query = {}) {
+  // 某些历史环境没有某个集合时按空集合处理，保证快照仍可生成。
   try {
     return await readCollection(db, collectionName, query)
   } catch (error) {
@@ -343,6 +358,7 @@ async function readOptionalCollection(db, collectionName, query = {}) {
 }
 
 function filterAndNormalizeRecords(records, field, range, normalize) {
+  // 先按北京时间范围筛选，再排序、标准化和丢弃没有电表号的坏记录。
   return records
     .filter((record) => isInRange(record[field], range))
     .sort(sortByDateDesc(field))
@@ -351,6 +367,7 @@ function filterAndNormalizeRecords(records, field, range, normalize) {
 }
 
 async function buildSnapshot(db, snapshotDate, generatedAt = new Date()) {
+  // 并行读取五类数据，随后生成每日记录、当前电表状态和汇总指标。
   const range = getBeijingDayRange(snapshotDate)
   const [configs, meters, powerRecords, notificationRecords, jobs] = await Promise.all([
     readOptionalCollection(db, COLLECTIONS.userConfigs),
@@ -403,6 +420,7 @@ async function buildSnapshot(db, snapshotDate, generatedAt = new Date()) {
 }
 
 async function upsertSnapshot(db, snapshot) {
+  // 同一天快照存在时覆盖，不存在时使用 snapshotDate 作为文档 ID 创建。
   let snapshots = db.collection(COLLECTIONS.snapshots)
   let existing = []
 
@@ -434,6 +452,7 @@ async function upsertSnapshot(db, snapshot) {
 }
 
 async function main(event = {}) {
+  // 入口捕获所有异常并返回失败摘要，避免定时任务只得到未结构化异常。
   const snapshotDate = getSnapshotDate(event)
   const db = cloud.database()
 

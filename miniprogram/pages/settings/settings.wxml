@@ -1,8 +1,11 @@
+<!-- 设置页结构：宿舍选择、电表配置、邮箱、保存/解绑和辅助链接。 -->
 <navigation-bar title="设置" back="{{false}}" color="black" background="#FFF"></navigation-bar>
 
 <scroll-view class="page" scroll-y type="list">
 
   <view class="form">
+    <!-- 四级 picker 由 settings.ts 逐级填充；选择上级后会重置下级选项。 -->
+    <!-- 自动匹配成功的电表输入框会被禁用，未匹配时允许手动填写。 -->
     <view class="field">
       <text class="label">宿舍位置</text>
       <picker
@@ -34,6 +37,7 @@
       </picker>
     </view>
 
+    <!-- reminderEnabled 当前固定为 true，邮箱用于接收低电量通知。 -->
     <view class="field">
       <text class="label">楼层</text>
       <picker
@@ -112,6 +116,7 @@
       />
     </view>
 
+    <!-- 保存按钮会触发前端校验和 saveConfig 云函数。 -->
     <button
       class="save-button"
       type="primary"
@@ -122,6 +127,7 @@
       保存配置
     </button>
 
+    <!-- 解绑会删除配置，但服务端会尽量保留历史查询和通知记录。 -->
     <button
       wx:if="{{isAuthenticated}}"
       class="unbind-button"

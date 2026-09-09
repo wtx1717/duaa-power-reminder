@@ -1,3 +1,5 @@
+// saveConfig 的 TypeScript 业务实现。
+// 它负责校验用户配置、创建或更新电表，并清理被替换且不再共享的旧电表。
 import { COLLECTIONS, getCloudContext, getDatabase } from '../shared/db'
 import type { DatabaseAdapter } from '../shared/db'
 import { cleanMeter } from './shared/meterCleanup'
@@ -31,10 +33,12 @@ const DEFAULT_ESTIMATED_DAILY_USAGE_KWH = 5
 const DEFAULT_SCHEDULE_MODE = 'normal'
 
 function normalizeMeterId(value: string): string {
+  // 统一去掉用户输入两端的空白，避免同一个电表被保存成多个字符串。
   return String(value || '').trim()
 }
 
 function normalizeEmail(value: string): string {
+  // 邮箱不区分大小写，统一转小写后再保存和查询。
   return String(value || '').trim().toLowerCase()
 }
 
@@ -43,6 +47,7 @@ function isValidEmail(email: string): boolean {
 }
 
 function validateInput(input: SaveConfigInput): ValidatedSaveConfigInput {
+  // 前端会校验一次，但云函数必须再次校验，因为客户端输入不能被信任。
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
   const email = normalizeEmail(input.email)
@@ -79,6 +84,7 @@ function collectCleanupTargets(
   current: (UserConfig & StoredDocument) | undefined,
   next: ValidatedSaveConfigInput,
 ): CleanupTarget[] {
+  // 只清理旧配置中已经被新配置替换、且没有继续使用的电表。
   if (!current) {
     return []
   }
@@ -106,6 +112,7 @@ function collectCleanupTargets(
 }
 
 function getErrorDetails(error: unknown): string {
+  // 将不同 SDK 错误形态转换成可记录、可展示的文本。
   if (error instanceof Error) {
     return error.message
   }
@@ -143,6 +150,7 @@ function getErrorDetails(error: unknown): string {
 }
 
 export function isDuplicateKeyError(error: unknown): boolean {
+  // 并发保存时两个请求可能同时 add；重复键表示另一请求已经创建了电表。
   const details = getErrorDetails(error)
   return /E11000|DUPLICATE[_\s-]*KEY|duplicate\s+key|duplicate\s+key\s+error|duplicate.*(?:index|unique)|unique.*(?:index|constraint|key)|唯一.*(?:索引|键)|(?:索引|键).*唯一/i.test(details)
 }
@@ -152,6 +160,7 @@ function buildExistingMeterData(
   type: Meter['type'],
   updatedAt: Date,
 ): Record<string, unknown> {
+  // 更新已有电表时保留历史日耗和调度模式，只刷新绑定类型和更新时间。
   const estimatedDailyUsageKwh = current && Number.isFinite(Number(current.estimatedDailyUsageKwh))
     ? Number(current.estimatedDailyUsageKwh)
     : DEFAULT_ESTIMATED_DAILY_USAGE_KWH
@@ -169,6 +178,7 @@ export async function upsertMeter(
   meterId: string,
   type: Meter['type'],
 ): Promise<void> {
+  // 先尝试创建；遇到唯一索引冲突后读取已有记录并更新，保证并发绑定最终收敛。
   const now = db.serverDate()
   const meters = db.collection<Meter & StoredDocument>(COLLECTIONS.meters)
   try {
@@ -205,6 +215,7 @@ export async function upsertMeter(
 }
 
 export async function main(event: SaveConfigInput): Promise<SaveConfigResult> {
+  // 保存顺序：识别用户 -> 校验输入 -> 写用户配置 -> upsert 两块电表 -> 清理旧电表。
   const { OPENID } = getCloudContext()
 
   if (!OPENID) {

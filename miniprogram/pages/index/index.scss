@@ -1,3 +1,4 @@
+/* 首页：浅色页面背景、绑定摘要、查询按钮和电量结果列表。 */
 page {
   height: 100vh;
   overflow: hidden;
@@ -70,6 +71,7 @@ page {
 }
 
 .query-button {
+  /* 蓝色表示“执行查询”这一主动操作。 */
   width: 100%;
   margin: 20rpx 0 0;
   border-radius: 8rpx;
@@ -83,6 +85,7 @@ page {
 }
 
 .result-item {
+  /* 每块电表使用独立区域，便于同时比较照明和空调结果。 */
   box-sizing: border-box;
   margin-top: 20rpx;
   padding: 24rpx;

@@ -1,3 +1,4 @@
+// 小程序首页：显示绑定的两块电表，并允许用户同时查询当前电量。
 import { hasAuthenticated, loginWithWechat } from '../../services/auth'
 import {
   getCachedLoginResult,
@@ -18,6 +19,7 @@ const QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
 const LOGIN_CACHE_MAX_AGE_MS = 5 * 60 * 1000
 
 function setGlobalHomePowerState(state: HomePowerState): void {
+  // 页面切换时可能被重新创建，因此把最近一次首页状态放在 App 全局数据中。
   const app = getApp<IAppOption>()
   app.globalData.homePowerState = state
 }
@@ -42,6 +44,7 @@ Page({
   },
 
   onLoad() {
+    // 已登录用户优先使用缓存快速展示；缓存过期后静默刷新，不阻塞页面首次显示。
     if (!hasAuthenticated()) {
       this.setData({ loading: false })
       return
@@ -62,6 +65,7 @@ Page({
   },
 
   onShow() {
+    // 从设置页返回首页时，优先恢复保存过的查询状态。
     const sharedState = getGlobalHomePowerState()
 
     if (sharedState) {
@@ -96,6 +100,7 @@ Page({
   },
 
   applyLoginResult(result: LoginResult) {
+    // 把云函数返回的配置和电表快照转换成首页需要的字段。
     const config = result.config
     const state = createHomePowerState(
       config
@@ -118,6 +123,7 @@ Page({
   },
 
   async login(options: { silent?: boolean } = {}) {
+    // silent 登录用于后台刷新缓存；普通登录则在页面上显示加载和错误状态。
     if (options.silent && (this.data.loading || this.data.refreshingLogin)) {
       return
     }
@@ -153,6 +159,7 @@ Page({
   },
 
   requireLogin(): boolean {
+    // 首页查询必须登录；未登录时引导用户切换到设置页授权。
     if (hasAuthenticated()) {
       return true
     }
@@ -174,6 +181,7 @@ Page({
   },
 
   async onQueryPower() {
+    // 两块电表并行查询，但整体只允许一个查询批次同时进行。
     if (!this.requireLogin()) {
       return
     }
@@ -200,6 +208,7 @@ Page({
     })
 
     try {
+      // Promise.all 会等待两个请求都结束，即使其中一个返回业务失败。
       const [lightResult, acResult] = await Promise.all([
         queryPower({
           meterId: lightMeterId,

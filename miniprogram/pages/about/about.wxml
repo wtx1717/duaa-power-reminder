@@ -1,3 +1,4 @@
+<!-- 关于页展示开发者、仓库、联系方式和赞赏码弹窗。 -->
 <navigation-bar title="关于我们" back="{{true}}" color="black" background="#FFF"></navigation-bar>
 
 <scroll-view class="page" scroll-y type="list">
@@ -41,6 +42,7 @@
     </view>
   </view> 
 
+  <!-- 赞赏码默认隐藏，点击按钮后由页面状态控制弹窗显示。 -->
   <view class="section appreciation-section">
     <view class="section-title">我从没觉得敲代码开心过</view>
     <view class="section-text">
@@ -53,6 +55,7 @@
   <view class="version">版本 1.0.4</view>
 </scroll-view>
 
+<!-- catchtap 阻止点击弹窗内容时冒泡到遮罩层，避免误关闭弹窗。 -->
 <view wx:if="{{showAppreciationCode}}" class="modal-mask" catchtap="onHideAppreciationCode">
   <view class="appreciation-modal" catchtap="noop">
     <view class="modal-title">感谢支持</view>

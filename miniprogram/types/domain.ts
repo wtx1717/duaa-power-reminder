@@ -1,7 +1,10 @@
+// 小程序端的领域类型。
+// 这些接口描述云函数和页面之间传递的数据形状，不会在运行时生成代码。
 export type MeterType = 'light' | 'ac'
 export type MeterScheduleMode = 'normal' | 'near_threshold' | 'notified'
 
 export interface UserPowerConfig {
+  // 用户绑定的两块电表和提醒邮箱。
   openid: string
   lightMeterId: string
   acMeterId: string
@@ -12,6 +15,7 @@ export interface UserPowerConfig {
 }
 
 export interface MeterSnapshot {
+  // 登录接口返回的电表状态快照；日期在小程序端以 ISO 字符串表示。
   meterId: string
   type: MeterType
   lastRemainingKwh?: number
@@ -94,6 +98,7 @@ export interface ScheduledCheckResult {
 }
 
 export interface MeterPowerView {
+  // 首页中一块电表的显示状态，包含加载中、展示文案和原始查询结果。
   label: string
   meterId: string
   loading: boolean

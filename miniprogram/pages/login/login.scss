@@ -1,3 +1,4 @@
+/* 登录页：品牌展示、授权按钮、隐私同意和错误提示。 */
 page {
   min-height: 100vh;
   background: #f5f7f8;
@@ -61,6 +62,7 @@ page {
 }
 
 .privacy-consent {
+  /* 同意文本和复选框保持一行，避免误把链接当成按钮。 */
   box-sizing: border-box;
   max-width: 100%;
   margin-top: 28rpx;

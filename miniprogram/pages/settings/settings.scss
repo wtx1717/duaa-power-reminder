@@ -1,3 +1,4 @@
+/* 设置页：表单控件、自动匹配提示、登录提示和危险操作按钮。 */
 page {
   height: 100vh;
   overflow: hidden;
@@ -62,6 +63,7 @@ page {
 }
 
 .picker-input {
+  /* picker 本身由微信提供，外层 view 负责统一输入框视觉。 */
   box-sizing: border-box;
   width: 100%;
   min-height: 88rpx;
@@ -75,6 +77,7 @@ page {
 }
 
 .readonly-input {
+  /* 自动匹配的电表号不可编辑，但仍保持与普通输入框相同的尺寸。 */
   color: #66736d;
   background: #eef2f0;
 }
@@ -111,6 +114,7 @@ page {
 }
 
 .unbind-button {
+  /* 解绑会删除配置，因此使用红色表达危险操作。 */
   color: #fff;
   background: #b5452f;
 }

@@ -1,3 +1,4 @@
+// 登录页：先完成隐私协议确认，再调用云函数建立登录状态。
 import {
   clearAuthenticated,
   hasAuthenticated,
@@ -29,6 +30,7 @@ Page({
   },
 
   redirectIfAuthenticated() {
+    // 已经授权过的用户不需要重复登录，直接回到设置页。
     if (!hasAuthenticated() || this.data.redirecting) {
       return
     }
@@ -47,6 +49,7 @@ Page({
   },
 
   async onAuthorizeLogin() {
+    // 未完成隐私勾选时，不调用微信授权接口。
     if (this.data.loading) {
       return
     }
@@ -74,6 +77,7 @@ Page({
   },
 
   async loginAfterPrivacyAuthorization() {
+    // 登录成功后同时写入本地标记；失败时清除标记，避免出现“假登录”状态。
     this.setData({
       loading: true,
       message: '',

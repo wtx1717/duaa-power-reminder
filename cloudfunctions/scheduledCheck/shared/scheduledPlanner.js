@@ -1,13 +1,17 @@
+// 定时巡检计划器。
+// 它只负责挑选电表并生成任务，不负责真正请求上游页面。
 const MAX_METERS_PER_PLAN = 50
 const PLAN_WINDOW_MS = 25 * 60 * 1000
 const PLAN_DEADLINE_MS = 30 * 60 * 1000
 const ACTIVE_JOB_STATUSES = ['pending', 'running']
 
 function getMeterType(meter) {
+  // 非 ac 的值按照照明处理，兼容旧数据或缺少 type 的记录。
   return meter && meter.type === 'ac' ? 'ac' : 'light'
 }
 
 function shuffleMeters(meters) {
+  // Fisher-Yates 洗牌：复制数组后随机交换，避免改变数据库查询结果原数组。
   const shuffled = meters.slice()
 
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -21,6 +25,7 @@ function shuffleMeters(meters) {
 }
 
 function buildPlannedJobs(meters, now, runIdPrefix = 'scheduledCheck') {
+  // 把电表均匀分到时间桶中，每块电表在自己的桶内随机执行，减少瞬时请求峰值。
   if (!meters.length) {
     return []
   }
@@ -52,6 +57,7 @@ function buildPlannedJobs(meters, now, runIdPrefix = 'scheduledCheck') {
 }
 
 function selectMetersToPlan(dueMeters, activeJobs) {
+  // 已有 pending/running 任务或正在清理的电表不能重复加入新计划。
   return dueMeters.filter((meter) => {
     const meterId = String(meter.meterId || '').trim()
     return meterId && meter.cleanupPending !== true && !activeJobs.has(meterId)

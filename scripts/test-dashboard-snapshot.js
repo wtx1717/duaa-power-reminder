@@ -1,7 +1,10 @@
+// 运营快照云函数测试。
+// Mock 数据库提供最小的 where/get/update/set 行为，用来验证汇总逻辑而不连接真实环境。
 const assert = require('assert')
 const Module = require('module')
 
 class MockDatabase {
+  // 测试只模拟快照代码实际使用的数据库操作。
   constructor(initialCollections = {}) {
     this.collections = {
       user_configs: [],
@@ -128,6 +131,7 @@ function makeDate(iso) {
 }
 
 function buildFixtureDatabase() {
+  // 构造包含用户、电表、查询、通知和任务的固定样本。
   return new MockDatabase({
     user_configs: [
       { _id: 'cfg-1', openid: 'u-1' },
@@ -343,6 +347,7 @@ function buildFixtureDatabase() {
 }
 
 async function testBuildSnapshot() {
+  // 验证北京时间日期范围、状态统计、KPI 和各类明细是否正确生成。
   const database = buildFixtureDatabase()
   const { buildSnapshot } = loadSnapshotModule(database)
   const snapshot = await buildSnapshot(database, '2026-09-04', new Date('2026-09-04T15:00:00.000Z'))
@@ -389,6 +394,7 @@ async function testBuildSnapshot() {
 }
 
 async function testUpsertSnapshot() {
+  // 验证同一天快照会覆盖旧文档，不会产生重复快照。
   const database = buildFixtureDatabase()
   const { buildSnapshot, upsertSnapshot } = loadSnapshotModule(database)
   const snapshot = await buildSnapshot(database, '2026-09-04', new Date('2026-09-04T15:00:00.000Z'))

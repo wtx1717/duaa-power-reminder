@@ -1,3 +1,5 @@
+// 定时随机计划测试。
+// 验证每轮最多规划 50 块、任务时间分布、活动任务去重和 backlog 消化能力。
 const assert = require('assert')
 const {
   ACTIVE_JOB_STATUSES,
@@ -42,6 +44,7 @@ function formatDuration(ms) {
 }
 
 function assertPlannedJobs(jobs, expectedCount, triggerTime) {
+  // 检查任务数量、唯一电表号、计划窗口和统一截止时间。
   assert.strictEqual(jobs.length, expectedCount, 'planned job count mismatch')
 
   if (!jobs.length) {
@@ -158,6 +161,7 @@ function testDispatchCapacity() {
 }
 
 function simulateBacklog(totalMeters) {
+  // 按每轮 50 块规划、每 5 分钟分发 10 块的规则模拟积压清空时间。
   let remaining = totalMeters
   let rounds = 0
   const triggerStart = new Date('2026-07-07T08:00:00.000Z')

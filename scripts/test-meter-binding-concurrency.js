@@ -1,3 +1,5 @@
+// 电表绑定并发测试。
+// 通过 Mock 数据库同时执行保存请求，验证唯一索引冲突恢复和旧字段清理。
 const assert = require('assert')
 const Module = require('module')
 
@@ -89,6 +91,7 @@ class MockDatabase {
 }
 
 function applyUpdate(document, data) {
+  // 模拟云数据库 update 中普通赋值和 command.remove() 的最小行为。
   for (const [key, value] of Object.entries(data)) {
     if (value && typeof value === 'object' && value.__op === 'remove') {
       delete document[key]
@@ -128,6 +131,7 @@ function loadCloudFunctions(database, context) {
 }
 
 async function testSaveConfigConcurrency() {
+  // 两个用户同时绑定同一电表时，最终只应有一条电表记录。
   const database = new MockDatabase()
   const context = { OPENID: 'openid-user-1' }
   const { saveConfig } = loadCloudFunctions(database, context)

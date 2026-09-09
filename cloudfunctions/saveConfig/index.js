@@ -1,3 +1,4 @@
+// saveConfig 云函数：校验配置、保存用户绑定，并处理旧电表清理。
 const cloud = require('wx-server-sdk')
 const { cleanMeter } = require('./shared/meterCleanup')
 
@@ -15,10 +16,12 @@ cloud.init({
 })
 
 function normalizeMeterId(value) {
+  // 去除输入两端空白，避免同一电表出现多个字符串表示。
   return String(value || '').trim()
 }
 
 function normalizeEmail(value) {
+  // 邮箱统一转小写，保证保存、查询和通知去重使用同一形式。
   return String(value || '').trim().toLowerCase()
 }
 
@@ -27,6 +30,7 @@ function isValidEmail(email) {
 }
 
 function validateInput(input) {
+  // 服务端必须重复校验客户端输入，因为客户端传来的数据不能直接信任。
   const lightMeterId = normalizeMeterId(input.lightMeterId)
   const acMeterId = normalizeMeterId(input.acMeterId)
   const email = normalizeEmail(input.email)
@@ -60,6 +64,7 @@ function validateInput(input) {
 }
 
 function collectCleanupTargets(current, next) {
+  // 找出旧配置里不再被新配置使用的电表，后面交给共享清理逻辑处理。
   if (!current) {
     return []
   }
@@ -117,11 +122,13 @@ function getErrorDetails(error) {
 }
 
 function isDuplicateKeyError(error) {
+  // 并发保存可能同时创建同一电表；重复键不是致命错误，而是读取已有记录并更新的信号。
   const details = getErrorDetails(error)
   return /E11000|DUPLICATE[_\s-]*KEY|duplicate\s+key|duplicate\s+key\s+error|duplicate.*(?:index|unique)|unique.*(?:index|constraint|key)|唯一.*(?:索引|键)|(?:索引|键).*唯一/i.test(details)
 }
 
 function buildExistingMeterData(current, type, updatedAt) {
+  // 更新已有电表时保留日耗估算和调度模式，只刷新类型与更新时间。
   return {
     type,
     checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
@@ -134,6 +141,7 @@ function buildExistingMeterData(current, type, updatedAt) {
 }
 
 async function upsertMeter(db, meterId, type) {
+  // 先 add 再处理重复键，形成“创建或更新”的幂等操作。
   const now = db.serverDate()
   const meters = db.collection(COLLECTIONS.meters)
   try {
@@ -170,6 +178,7 @@ async function upsertMeter(db, meterId, type) {
 }
 
 exports.main = async (event) => {
+  // 主流程：识别用户 -> 校验 -> 保存配置 -> upsert 电表 -> 清理被替换的旧电表。
   const { OPENID } = cloud.getWXContext()
 
   if (!OPENID) {

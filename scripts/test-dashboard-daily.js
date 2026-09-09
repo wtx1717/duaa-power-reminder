@@ -1,3 +1,5 @@
+// 看板生成脚本测试。
+// 使用临时目录验证 .env 解析、快照索引、本地快照存储和 HTML 注入。
 const assert = require('assert')
 const fs = require('fs')
 const os = require('os')
@@ -14,6 +16,7 @@ const {
 } = require('./generate-dashboard-daily')
 
 function testSortSnapshots() {
+  // 快照必须按日期倒序，最新日期放在前面。
   const snapshots = sortSnapshots([
     { snapshotDate: '2026-09-03' },
     { snapshotDate: '2026-09-05' },
@@ -54,6 +57,7 @@ function testDotEnvFileLoading() {
 }
 
 async function testGenerateDashboardFile() {
+  // 生成结果应引用外部快照索引，而不是把完整快照数组嵌入 HTML。
   const outputPath = path.join(os.tmpdir(), `dashboard-daily-${Date.now()}.html`)
   const snapshotStorePath = path.join(os.tmpdir(), `dashboard-snapshots-${Date.now()}`)
   const rendered = await generateDashboardFile({

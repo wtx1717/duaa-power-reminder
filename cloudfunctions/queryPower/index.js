@@ -1,3 +1,4 @@
+// queryPower 云函数：校验绑定关系、执行手动查询限流、请求学校页面并记录结果。
 const cloud = require('wx-server-sdk')
 const https = require('https')
 const { URL } = require('url')
@@ -18,6 +19,7 @@ const MANUAL_QUERY_INTERVAL_MS = 20 * 1000
 const MANUAL_QUERY_LOCK_MS = 30 * 1000
 const MANUAL_QUERY_TOO_FREQUENT_MESSAGE = '操作过于频繁，请稍后再试'
 const MANUAL_QUERY_INITIAL_STATE = {
+  // Date(0) 表示很早以前，首次查询可以立即通过时间条件。
   lastManualLightQueryAt: new Date(0),
   manualLightQueryLockUntil: new Date(0),
   lastManualAcQueryAt: new Date(0),
@@ -29,6 +31,7 @@ cloud.init({
 })
 
 function stripTags(value) {
+  // 删除 HTML 标签和常见空格实体，给后续数字/文字解析准备纯文本。
   return String(value || '')
     .replace(/&nbsp;/g, ' ')
     .replace(/<[^>]+>/g, '')
@@ -36,6 +39,7 @@ function stripTags(value) {
 }
 
 function decodeHtml(value) {
+  // 处理页面中的数字实体和 XML/HTML 实体，例如 &amp; 和 &#39;。
   return stripTags(value)
     .replace(/&#x([0-9a-f]+);/gi, (_entity, hex) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_entity, code) => String.fromCharCode(Number(code)))
@@ -47,6 +51,7 @@ function decodeHtml(value) {
 }
 
 function parseNumber(text) {
+  // 从文本中提取第一个整数或小数；解析不到时返回 undefined。
   const cleaned = decodeHtml(text).replace(/,/g, '')
   const match = cleaned.match(/-?\d+(?:\.\d+)?/)
 
@@ -59,6 +64,7 @@ function parseNumber(text) {
 }
 
 function parseRemainingKwh(html) {
+  // 上游页面有两种已知电量 DOM 结构，按优先级依次尝试。
   const patterns = [
     /<use[^>]+xlink:href=["']#widget-headRemain["'][^>]*>.*?<tspan[^>]*>(.*?)<\/tspan>/is,
     /<svg[^>]+id=["']canvas1["'][^>]*>.*?<tspan[^>]*>(.*?)<\/tspan>/is,
@@ -78,6 +84,7 @@ function parseRemainingKwh(html) {
 }
 
 function parseCutoffTime(html) {
+  // 页面把时间放在方括号中，这里只接受看起来像日期或时刻的内容。
   const matches = html.matchAll(/\[([^\]]+)\]/g)
 
   for (const match of matches) {
@@ -92,6 +99,7 @@ function parseCutoffTime(html) {
 }
 
 function parseAddress(html) {
+  // 地址页面存在编码异常和多种 HTML 结构，因此准备多个兼容正则。
   const patterns = [
     /地址:\s*(.*?)<\/p>/is,
     /鍦板潃:\s*(.*?)<\/p>/is,
@@ -112,6 +120,7 @@ function parseAddress(html) {
 }
 
 function shouldUseXueyuanRoadAcSite(meterId, type) {
+  // 学院路空调电表使用另一站点；通过类型和编号范围选择上游地址。
   const normalizedMeterId = String(meterId || '').trim()
 
   return type === 'ac' && /^\d+$/.test(normalizedMeterId) && Number(normalizedMeterId) < 10000
@@ -129,6 +138,7 @@ function selectPowerBaseUrl(meterId, type) {
 }
 
 function fetchPowerPage(meterId, type) {
+  // 使用 Node 原生 https 请求学校页面，并把响应体拼成 UTF-8 字符串。
   const url = new URL(selectPowerBaseUrl(meterId, type))
   url.searchParams.set('id', meterId)
 
@@ -164,6 +174,7 @@ function fetchPowerPage(meterId, type) {
 }
 
 async function ensureCollection(db, collectionName) {
+  // 某些环境不会预先创建限流集合，首次使用时尝试补建。
   if (typeof db.createCollection !== 'function') {
     return
   }
@@ -178,6 +189,7 @@ async function ensureCollection(db, collectionName) {
 }
 
 async function assertMeterBelongsToUser(db, openid, meterId, type) {
+  // 防止用户查询不属于自己的电表；权限判断必须在服务端完成。
   const result = await db.collection(COLLECTIONS.userConfigs).where({ openid }).get()
   const config = result.data[0]
 
@@ -195,6 +207,7 @@ async function assertMeterBelongsToUser(db, openid, meterId, type) {
 }
 
 function getManualQueryFields(type) {
+  // 照明和空调分别使用独立的时间字段，互不阻塞。
   return type === 'ac'
     ? {
       lastAt: 'lastManualAcQueryAt',
@@ -207,6 +220,7 @@ function getManualQueryFields(type) {
 }
 
 async function getOrCreateManualQueryState(db, openid) {
+  // 查询或创建用户限流状态；并发创建遇到唯一键时重新读取已有记录。
   const userQueryState = db.collection(COLLECTIONS.userQueryState)
 
   try {
@@ -249,6 +263,7 @@ async function getOrCreateManualQueryState(db, openid) {
 }
 
 async function ensureManualQueryFields(db, state, fields) {
+  // 给旧用户补齐新增字段，兼容数据库中没有锁字段的历史记录。
   const _ = db.command
   const zero = new Date(0)
   const userQueryState = db.collection(COLLECTIONS.userQueryState)
@@ -278,6 +293,7 @@ async function ensureManualQueryFields(db, state, fields) {
 }
 
 async function claimManualQuery(db, config, type, now) {
+  // 用带条件的 update 原子抢占查询资格：只有锁已过期且距离上次查询足够久才会更新成功。
   if (!config || !config._id) {
     return false
   }
@@ -303,6 +319,7 @@ async function claimManualQuery(db, config, type, now) {
 }
 
 async function releaseManualQueryLock(db, config, type, queriedAt) {
+  // 无论上游查询成功还是失败，都要释放短锁并记录本次查询时间。
   if (!config || !config._id) {
     return
   }
@@ -322,6 +339,7 @@ async function releaseManualQueryLock(db, config, type, queriedAt) {
 }
 
 function getErrorDetails(error) {
+  // 把 SDK 的多种错误形态转换成便于日志和测试断言的字符串。
   if (error instanceof Error) {
     return error.message
   }
@@ -357,6 +375,7 @@ function isDuplicateKeyError(error) {
 }
 
 async function updateMeter(db, record, type) {
+  // 更新电表最新查询状态；不存在时尝试创建，并处理并发创建造成的重复键。
   const now = db.serverDate()
   const meters = db.collection(COLLECTIONS.meters)
   const existing = await meters.where({ meterId: record.meterId }).get()
@@ -413,6 +432,7 @@ async function updateMeter(db, record, type) {
 }
 
 exports.main = async (event) => {
+  // 主流程：参数校验 -> 验证绑定 -> 原子限流 -> 查询解析 -> 写记录 -> 释放锁。
   const meterId = String(event.meterId || '').trim()
   const type = event.type
   const queriedAt = new Date()
@@ -434,6 +454,7 @@ exports.main = async (event) => {
   const config = await assertMeterBelongsToUser(db, OPENID, meterId, type)
   const manualQueryState = await getOrCreateManualQueryState(db, OPENID)
 
+  // claim 返回 false 表示另一个请求正在查询，或 20 秒冷却时间尚未结束。
   const claimed = await claimManualQuery(db, manualQueryState, type, queriedAt)
 
   if (!claimed) {
@@ -447,6 +468,7 @@ exports.main = async (event) => {
 
   let record
 
+  // 解析失败也要形成失败记录，这样页面和运营看板都能区分“没有查询”和“查询失败”。
   try {
     const html = await fetchPowerPage(meterId, type)
     const remainingKwh = parseRemainingKwh(html)
@@ -477,6 +499,7 @@ exports.main = async (event) => {
     }
   }
 
+  // 记录和更新电表放在 finally 释放锁，避免异常导致用户永久无法再次查询。
   try {
     await db.collection(COLLECTIONS.powerRecords).add({
       data: {

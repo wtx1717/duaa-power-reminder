@@ -1,3 +1,5 @@
+// 定时巡检执行器。
+// 它负责请求上游页面、解析结果、更新电表状态、估算日耗并触发低电量通知。
 const cloud = require('wx-server-sdk')
 const https = require('https')
 const { URL } = require('url')
@@ -25,6 +27,7 @@ const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 4
 const MIN_OBSERVED_DAILY_USAGE_KWH = 1
 
 function stripTags(value) {
+  // 解析网页前先去掉标签；这里保留纯文本，不使用完整 DOM 解析器。
   return String(value || '')
     .replace(/&nbsp;/g, ' ')
     .replace(/<[^>]+>/g, '')
@@ -32,6 +35,7 @@ function stripTags(value) {
 }
 
 function decodeHtml(value) {
+  // 处理学校页面中的 HTML/XML 实体和数字实体。
   return stripTags(value)
     .replace(/&#x([0-9a-f]+);/gi, (_entity, hex) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_entity, code) => String.fromCharCode(Number(code)))
@@ -43,6 +47,7 @@ function decodeHtml(value) {
 }
 
 function parseNumber(text) {
+  // 从一段文本中提取第一个数字，电量可能是整数或小数。
   const cleaned = decodeHtml(text).replace(/,/g, '')
   const match = cleaned.match(/-?\d+(?:\.\d+)?/)
 
@@ -55,6 +60,7 @@ function parseNumber(text) {
 }
 
 function parseRemainingKwh(html) {
+  // 兼容上游页面的两种已知 SVG 结构，返回剩余电量 kWh。
   const patterns = [
     /<use[^>]+xlink:href=["']#widget-headRemain["'][^>]*>.*?<tspan[^>]*>(.*?)<\/tspan>/is,
     /<svg[^>]+id=["']canvas1["'][^>]*>.*?<tspan[^>]*>(.*?)<\/tspan>/is,
@@ -74,6 +80,7 @@ function parseRemainingKwh(html) {
 }
 
 function parseCutoffTime(html) {
+  // 从方括号内容中寻找日期或时刻，作为页面显示的截止时间。
   const matches = html.matchAll(/\[([^\]]+)\]/g)
   const dateTimePattern = /\d{4}[-/\u5e74]\d{1,2}[-/\u6708]\d{1,2}|\d{1,2}:\d{2}/
 
@@ -89,6 +96,7 @@ function parseCutoffTime(html) {
 }
 
 function parseAddress(html) {
+  // 地址字段在不同页面版本中结构不同，因此按多个正则依次尝试。
   const patterns = [
     /\u5730\u5740:\s*(.*?)<\/p>/is,
     /閸︽澘娼?\s*(.*?)<\/p>/is,
@@ -112,6 +120,7 @@ function parseAddress(html) {
 }
 
 function shouldUseXueyuanRoadAcSite(meterId, type) {
+  // 学院路空调电表使用专用站点；其他电表走主站点。
   const normalizedMeterId = String(meterId || '').trim()
 
   return type === 'ac' && /^\d+$/.test(normalizedMeterId) && Number(normalizedMeterId) < 10000
@@ -124,6 +133,7 @@ function selectPowerBaseUrl(meterId, type) {
 }
 
 function fetchPowerPage(meterId, type) {
+  // 发起 HTTPS 请求并返回完整 HTML；超时或 HTTP 错误会进入 catch。
   const url = new URL(selectPowerBaseUrl(meterId, type))
   url.searchParams.set('id', meterId)
 
@@ -159,6 +169,7 @@ function fetchPowerPage(meterId, type) {
 }
 
 function asDate(value) {
+  // 统一处理 Date、云开发日期对象和日期字符串。
   if (!value) {
     return undefined
   }
@@ -176,6 +187,7 @@ function asDate(value) {
 }
 
 function normalizeCheckIntervalMinutes(value) {
+  // 检查间隔至少为 1 分钟；非法或旧数据使用默认 10 分钟。
   const minutes = Number(value)
 
   if (!Number.isFinite(minutes) || minutes < MIN_CHECK_INTERVAL_MINUTES) {
@@ -186,6 +198,7 @@ function normalizeCheckIntervalMinutes(value) {
 }
 
 function normalizeEstimatedDailyUsageKwh(value) {
+  // 日耗估算必须是正数，否则使用默认值 5 kWh/天。
   const usage = Number(value)
 
   if (!Number.isFinite(usage) || usage <= 0) {
@@ -206,6 +219,7 @@ function isSuccessfulScheduledPowerRecord(record) {
 }
 
 function findEstimateBaseRecord(records, currentRecord) {
+  // 在历史定时成功记录中寻找估算基准，并避开充值造成的电量跳升。
   const currentQueriedAt = asDate(currentRecord && currentRecord.queriedAt)
 
   if (
@@ -230,6 +244,7 @@ function findEstimateBaseRecord(records, currentRecord) {
       continue
     }
 
+    // 电量明显上升代表充值，不能把这段时间当成正常消耗来计算日耗。
     if (Number(newerRecord.remainingKwh) >= Number(olderRecord.remainingKwh) + RECHARGE_DELTA_KWH) {
       const elapsedDays = (currentQueriedAt.getTime() - newerQueriedAt.getTime()) / ONE_DAY_MS
       return elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS ? newerRecord : undefined
@@ -248,6 +263,7 @@ function findEstimateBaseRecord(records, currentRecord) {
 }
 
 function calculateScheduleState(input) {
+  // 根据本次结果计算：是否充值、日耗估算、调度模式、下次检查时间和通知周期。
   const now = input.now || new Date()
   const meter = input.meter || {}
   const record = input.record
@@ -265,6 +281,7 @@ function calculateScheduleState(input) {
   let lastRechargeDetectedAt = meter.lastRechargeDetectedAt
   let lowPowerNotifiedAt = meter.lowPowerNotifiedAt
 
+  // 查询失败时保留旧估算，只按固定检查间隔安排下一次重试。
   if (!record.ok || record.remainingKwh === undefined) {
     return {
       estimatedDailyUsageKwh,
@@ -280,6 +297,7 @@ function calculateScheduleState(input) {
   const previousRemainingKwh = previousRecord && previousRecord.remainingKwh
   const previousQueriedAt = asDate(previousRecord && previousRecord.queriedAt)
 
+  // 本次电量比上次高出至少 5 kWh，认为用户充值并重置低电量通知周期。
   if (previousRemainingKwh !== undefined && record.remainingKwh >= previousRemainingKwh + RECHARGE_DELTA_KWH) {
     rechargeDetected = true
     lastRechargeDetectedAt = record.queriedAt
@@ -290,6 +308,7 @@ function calculateScheduleState(input) {
   const estimateBaseRemainingKwh = estimateBaseRecord && estimateBaseRecord.remainingKwh
   const estimateBaseQueriedAt = asDate(estimateBaseRecord && estimateBaseRecord.queriedAt)
 
+  // 只有跨过至少 4 天且观察到的日耗不低于 1 kWh，才更新估算，避免短期噪声污染。
   if (!rechargeDetected && estimateBaseRemainingKwh !== undefined && estimateBaseQueriedAt) {
     const elapsedDays = (record.queriedAt.getTime() - estimateBaseQueriedAt.getTime()) / ONE_DAY_MS
     const observedDailyUsage = (estimateBaseRemainingKwh - record.remainingKwh) / elapsedDays
@@ -298,23 +317,26 @@ function calculateScheduleState(input) {
       elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS
       && observedDailyUsage >= MIN_OBSERVED_DAILY_USAGE_KWH
     ) {
-      estimatedDailyUsageKwh = previousEstimate * 0.8 + observedDailyUsage * 0.2
+        estimatedDailyUsageKwh = previousEstimate * 0.8 + observedDailyUsage * 0.2
     }
   }
 
   const distanceToThreshold = record.remainingKwh - thresholdKwh
 
+  // 低于阈值：进入 notified 模式，一天后再检查，并记录当前低电量周期起点。
   if (distanceToThreshold <= 0) {
     scheduleMode = 'notified'
     nextCheckAt = new Date(now.getTime() + ONE_DAY_MS)
     lowPowerNotifiedAt = previousMode === 'notified' && !rechargeDetected && lowPowerNotifiedAt
       ? lowPowerNotifiedAt
       : record.queriedAt
+  // 距阈值不超过 5 kWh：进入观察模式，一天后复查但暂不发送通知。
   } else if (distanceToThreshold <= NEAR_THRESHOLD_BAND_KWH) {
     scheduleMode = 'near_threshold'
     nextCheckAt = new Date(now.getTime() + ONE_DAY_MS)
     lowPowerNotifiedAt = null
   } else {
+    // 电量充足时，根据“距离阈值 / 日耗 - 安全余量”安排下一次检查。
     scheduleMode = 'normal'
     const daysUntilThreshold = distanceToThreshold / estimatedDailyUsageKwh
     const daysUntilNextCheck = Math.max(1, daysUntilThreshold - SAFETY_MARGIN_DAYS)
@@ -334,6 +356,7 @@ function calculateScheduleState(input) {
 }
 
 async function getPreviousSuccessfulPowerRecords(db, meterId) {
+  // 只读取该电表最近的定时成功记录，供日耗估算使用。
   try {
     const result = await db.collection(COLLECTIONS.powerRecords)
       .where({
@@ -364,6 +387,7 @@ function isValidEmail(email) {
 }
 
 async function queryMeter(meter, type) {
+  // 执行一块电表的上游查询，并把网络/解析失败转换成标准失败记录。
   const meterId = String(meter.meterId || '').trim()
   const queriedAt = new Date()
 
@@ -408,6 +432,7 @@ async function queryMeter(meter, type) {
 }
 
 async function updateMeter(db, meter, record, type, options) {
+  // 把查询结果和调度计算结果写回 meters；已有文档更新，没有文档则创建。
   const now = db.serverDate()
   const checkIntervalMinutes = normalizeCheckIntervalMinutes(meter && meter.checkIntervalMinutes)
   const schedule = calculateScheduleState({
@@ -451,6 +476,7 @@ async function updateMeter(db, meter, record, type, options) {
 }
 
 async function findBoundReminderConfigs(db, meterId, type) {
+  // 找出仍开启提醒且绑定这块电表的用户。
   const field = type === 'ac' ? 'acMeterId' : 'lightMeterId'
   const result = await db.collection(COLLECTIONS.userConfigs).where({
     [field]: meterId,
@@ -461,6 +487,7 @@ async function findBoundReminderConfigs(db, meterId, type) {
 }
 
 async function recordNotification(db, input) {
+  // 保存通知结果，哪怕发送失败或被跳过，也保留审计记录。
   const data = {
     openid: input.openid,
     email: input.email,
@@ -482,6 +509,7 @@ async function recordNotification(db, input) {
 }
 
 function shouldSendEmailNotification(config, record) {
+  // 只有开启提醒、邮箱合法、查询成功且电量不高于阈值时才发送。
   const email = normalizeEmail(config && config.email)
 
   if (!config || config.reminderEnabled !== true) {
@@ -500,6 +528,7 @@ function shouldSendEmailNotification(config, record) {
 }
 
 async function hasSentNotificationInCurrentLowPowerCycle(db, input) {
+  // 同一个低电量周期只发一次成功邮件；充值后 lowPowerNotifiedAt 会被重置。
   const cycleStart = asDate(input.schedule && input.schedule.lowPowerNotifiedAt)
   const query = {
     openid: input.config.openid,
@@ -532,6 +561,7 @@ async function hasSentNotificationInCurrentLowPowerCycle(db, input) {
 }
 
 async function sendEmailNotification(input) {
+  // 通过另一个云函数发送邮件，避免把 SMTP 细节放进巡检执行器。
   try {
     const response = await cloud.callFunction({
       name: 'sendEmailNotification',
@@ -562,6 +592,7 @@ async function sendEmailNotification(input) {
 }
 
 async function notifyUsersForMeter(db, record, type, configs, schedule) {
+  // 逐个用户判断是否需要通知，并统计 sent/failed/skipped 三类结果。
   let sentNotifications = 0
   let failedNotifications = 0
   let skippedNotifications = 0
@@ -625,6 +656,7 @@ function getMeterType(meter) {
 }
 
 async function processMeter(db, meter) {
+  // 单块电表的完整处理：查询 -> 读取历史 -> 写查询记录 -> 更新电表 -> 发送通知。
   const type = getMeterType(meter)
   const record = await queryMeter(meter, type)
   const previousRecords = await getPreviousSuccessfulPowerRecords(db, record.meterId)
@@ -656,6 +688,7 @@ async function processMeter(db, meter) {
 }
 
 async function getMeterForJob(db, job) {
+  // 优先按任务保存的 meterDocId 读取；兼容旧任务时退回 meterId + type 查询。
   if (job.meterDocId) {
     const result = await db.collection(COLLECTIONS.meters).doc(job.meterDocId).get()
     return result.data
@@ -690,6 +723,7 @@ async function markJobExpired(db, job) {
 }
 
 async function claimJob(db, job) {
+  // 用条件更新把 pending 原子改成 running，防止多个分发 worker 重复执行同一任务。
   const _ = db.command
   const now = new Date()
   const plannedAt = asDate(job.plannedAt)
@@ -736,6 +770,7 @@ async function claimJob(db, job) {
 }
 
 async function executePlannedJob(db, jobId) {
+  // 任务执行入口：读取任务、检查状态、抢占任务、处理电表，最后标记 done 或 failed。
   if (!jobId) {
     return {
       checkedMeters: 0,

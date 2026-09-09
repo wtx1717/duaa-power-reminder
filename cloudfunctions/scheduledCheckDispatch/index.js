@@ -1,3 +1,4 @@
+// scheduledCheckDispatch 云函数：取出到期的 pending 任务并并发执行。
 const cloud = require('wx-server-sdk')
 const { executePlannedJob, asDate } = require('./shared/scheduledExecutor')
 const { canDispatchScheduledJob } = require('./shared/workingHours')
@@ -20,6 +21,7 @@ function isCollectionNotFoundError(error) {
 }
 
 async function getDueJobs(db) {
+  // 任务按 plannedAt 升序取出，每次最多处理 10 个。
   const _ = db.command
 
   try {
@@ -43,6 +45,7 @@ async function getDueJobs(db) {
 }
 
 async function expireStaleJobs(db) {
+  // 先批量标记已经超过 deadline 的 pending/running 任务，避免继续执行过期任务。
   const _ = db.command
 
   try {
@@ -88,6 +91,7 @@ async function markExpired(db, job) {
 }
 
 function createJobSummary() {
+  // 单个任务的统计对象，最后会汇总到本次云函数返回值。
   return {
     checkedMeters: 0,
     failedJobs: 0,
@@ -100,6 +104,7 @@ function createJobSummary() {
 }
 
 function mergeJobSummary(result, summary) {
+  // 将一个 worker 的结果累加到总结果；errors 使用 push 展开追加。
   result.checkedMeters += summary.checkedMeters || 0
   result.failedJobs += summary.failedJobs || 0
   result.expiredJobs += summary.expiredJobs || 0
@@ -113,12 +118,14 @@ function mergeJobSummary(result, summary) {
 }
 
 async function runJobsWithConcurrency(jobs, concurrency, handler) {
+  // 用固定数量的 worker 消费共享下标，实现有限并发而不是一次启动所有请求。
   const results = []
   let nextJobIndex = 0
   let shouldStop = false
   const workerCount = Math.min(concurrency, jobs.length)
 
   async function worker() {
+    // worker 每次领取一个任务；shouldStop 用于工作时间结束时停止继续取新任务。
     while (true) {
       if (shouldStop) {
         return
@@ -161,6 +168,7 @@ async function runJobsWithConcurrency(jobs, concurrency, handler) {
 }
 
 exports.main = async () => {
+  // 主流程：工作时间检查 -> 过期任务清理 -> 取待执行任务 -> 并发执行 -> 汇总。
   const db = cloud.database()
   const result = {
     ok: true,
@@ -183,6 +191,7 @@ exports.main = async () => {
 
   result.expiredJobs += await expireStaleJobs(db)
   const jobs = await getDueJobs(db)
+  // 解构赋值同时取出 worker 结果数组和是否因离开工作时间而停止的标记。
   const { results: jobSummaries, shouldStop } = await runJobsWithConcurrency(
     jobs.data,
     DISPATCH_CONCURRENCY,

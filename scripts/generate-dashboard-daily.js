@@ -1,3 +1,5 @@
+// 运营看板生成脚本。
+// 负责读取云数据库快照、维护本地快照文件，并把运行时脚本注入 HTML 模板。
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -18,6 +20,7 @@ const DEFAULT_SNAPSHOT_READ_TIMEOUT_MS = Number(process.env.DASHBOARD_SNAPSHOT_R
 let lastWrittenOutputPath = DEFAULT_OUTPUT_PATH
 
 function resolveCloudbaseSdk() {
+  // 兼容根目录和云函数目录安装依赖的情况，依次寻找可用 SDK。
   const candidates = [
     '@cloudbase/node-sdk',
     path.resolve(__dirname, '..', 'cloudfunctions', 'queryPower', 'node_modules', '@cloudbase', 'node-sdk'),
@@ -40,6 +43,7 @@ function resolveCloudbaseSdk() {
 }
 
 function parseDotEnvContent(content) {
+  // 解析简单 .env 文件；这里只读取键值，不执行任何 shell 语法。
   const values = Object.create(null)
   const lines = String(content || '').replace(/^\uFEFF/, '').split(/\r?\n/)
 
@@ -90,6 +94,7 @@ function loadDotEnvFile(dotenvPath = DEFAULT_DOTENV_PATH) {
 }
 
 function getEnvValue(localEnv, names) {
+  // 优先使用 .env 中的值，再回退到当前进程环境变量。
   for (const name of names) {
     const localValue = localEnv && localEnv[name]
     if (localValue !== undefined && localValue !== '') {
@@ -108,6 +113,7 @@ function getEnvValue(localEnv, names) {
 }
 
 function resolveCloudbaseOptions(dotenvPath = DEFAULT_DOTENV_PATH) {
+  // 组合 CloudBase 环境 ID 和访问凭据；缺少必要配置时返回可读错误。
   const localEnv = loadDotEnvFile(dotenvPath)
   const env = getEnvValue(localEnv, ['CLOUDBASE_ENV_ID', 'TCB_ENV_ID', 'TCB_ENV', 'CLOUDBASE_ENV'])
   const accessKey = getEnvValue(localEnv, ['CLOUDBASE_APIKEY', 'TCB_APIKEY'])
@@ -139,6 +145,7 @@ function getBeijingTodayDate() {
 }
 
 function buildSnapshotManifest(snapshots) {
+  // 生成看板前端使用的索引，而不是把所有快照正文都塞进 HTML。
   const sorted = sortSnapshots(snapshots)
   const latestSuccessful = sorted.find((item) => item.status === 'success') || null
   const today = getBeijingTodayDate()
@@ -165,6 +172,7 @@ function buildSnapshotManifest(snapshots) {
 }
 
 function writeTextIfChanged(filePath, text) {
+  // 内容没有变化时不写文件，减少无意义的时间戳和文件系统操作。
   const content = String(text)
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
 
@@ -199,6 +207,7 @@ function writeTextIfChanged(filePath, text) {
 }
 
 function writeTextAtomic(filePath, text) {
+  // 先写临时文件再替换目标文件，降低生成中断留下半个文件的概率。
   const content = String(text)
   const directory = path.dirname(filePath)
   const tempPath = path.join(directory, `${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`)
@@ -226,6 +235,7 @@ function writeJsonIfChanged(filePath, value) {
 }
 
 function writeLocalSnapshotStore(storePath, snapshots) {
+  // 本地只保留 index.json 和按日期拆分的 JSON，浏览器按需加载单日快照。
   const sorted = sortSnapshots(snapshots)
   const manifest = buildSnapshotManifest(sorted)
   fs.mkdirSync(storePath, { recursive: true })
@@ -339,6 +349,7 @@ function loadTemplateHtml(templatePath) {
 }
 
 function buildRuntimeScript() {
+  // 读取独立的 dashboard-runtime.js，避免生成脚本和浏览器运行时重复维护。
   const runtimePath = path.resolve(__dirname, 'dashboard-runtime.js')
   return fs.readFileSync(runtimePath, 'utf8')
 }
@@ -651,6 +662,7 @@ function injectDesktopTemplateShell(html) {
 }
 
 function readAllDocuments(collection, pageSize = 500) {
+  // 分页读取 CloudBase 集合，兼容没有 skip API 的简化 Mock。
   const documents = []
   const baseQuery = typeof collection.where === 'function' ? collection.where({}) : collection
   const canPaginate = typeof baseQuery.skip === 'function' && typeof baseQuery.limit === 'function'
@@ -696,6 +708,7 @@ async function readSnapshotsFromDatabase(db) {
 }
 
 async function loadEmbeddedSnapshots(snapshotStorePath = DEFAULT_SNAPSHOT_STORE_DIR) {
+  // 生成失败或离线时读取本地已有快照，保证看板仍可预览。
   if (!snapshotStorePath || !fs.existsSync(snapshotStorePath)) {
     return []
   }
@@ -758,6 +771,7 @@ function writeOutputHtml(outputPath, html) {
 }
 
 async function generateDashboardFile({
+  // 主生成函数：准备快照 -> 更新本地索引 -> 加载模板 -> 注入运行时 -> 输出 HTML。
   templatePath = DEFAULT_TEMPLATE_PATH,
   outputPath = DEFAULT_OUTPUT_PATH,
   snapshotStorePath = DEFAULT_SNAPSHOT_STORE_DIR,

@@ -1,3 +1,5 @@
+// unbindConfig 的 TypeScript 业务实现。
+// 解绑会删除用户配置和手动查询锁，但会根据共享关系决定是否删除电表。
 import { COLLECTIONS, getCloudContext, getDatabase } from '../shared/db'
 import type { DatabaseAdapter } from '../shared/db'
 import { cleanMeter } from './shared/meterCleanup'
@@ -23,6 +25,7 @@ export interface UnbindConfigResult {
 }
 
 function getErrorDetails(error: unknown): string {
+  // SDK 可能返回 Error、字符串或普通错误对象，统一转换后再包装业务错误。
   if (error instanceof Error) {
     return error.message
   }
@@ -79,6 +82,7 @@ async function getUserConfigs(
   db: DatabaseAdapter,
   openid: string,
 ): Promise<Array<UserConfig & StoredDocument>> {
+  // 一个用户理论上只有一条配置，但这里读取全部记录，兼容历史重复数据。
   try {
     const result = await db.collection<UserConfig & StoredDocument>(COLLECTIONS.userConfigs)
       .where({ openid })
@@ -90,6 +94,7 @@ async function getUserConfigs(
 }
 
 function collectTargets(configs: Array<UserConfig & StoredDocument>): UnbindTarget[] {
+  // 以“类型 + 电表号”去重，避免历史重复配置导致重复清理。
   const targets: UnbindTarget[] = []
   const seen = new Set<string>()
 
@@ -112,6 +117,7 @@ async function deleteUserConfigs(
   db: DatabaseAdapter,
   configs: Array<UserConfig & StoredDocument>,
 ): Promise<void> {
+  // 删除用户配置；记录已经不存在时视为幂等成功。
   try {
     for (const config of configs) {
       if (config._id) {
@@ -135,6 +141,7 @@ async function deleteUserQueryState(
   db: DatabaseAdapter,
   openid: string,
 ): Promise<void> {
+  // 删除手动查询限流状态；集合不存在时说明系统尚未创建过该状态，可忽略。
   try {
     const result = await db.collection<{ _id?: string } & StoredDocument>(COLLECTIONS.userQueryState)
       .where({ openid })
@@ -159,6 +166,7 @@ async function deleteUserQueryState(
 }
 
 export async function main(): Promise<UnbindConfigResult> {
+  // 解绑必须使用微信上下文中的 openid，不能让客户端指定要删除的用户。
   const { OPENID } = getCloudContext()
 
   if (!OPENID) {

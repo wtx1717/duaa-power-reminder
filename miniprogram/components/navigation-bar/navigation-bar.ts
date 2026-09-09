@@ -1,3 +1,5 @@
+// 通用自定义导航栏组件。
+// 组件根据右上角胶囊按钮和安全区尺寸计算布局，兼容 iOS、Android 和开发者工具。
 Component({
   options: {
     multipleSlots: true // 在组件定义时的选项中启用多slot支持
@@ -59,6 +61,7 @@ Component({
   },
   lifetimes: {
     attached() {
+      // 胶囊按钮的位置决定导航栏右侧需要预留的宽度。
       const rect = wx.getMenuButtonBoundingClientRect()
       wx.getSystemInfo({
         success: (res) => {
@@ -79,6 +82,7 @@ Component({
    */
   methods: {
     _showChange(show: boolean) {
+      // show 改变时生成一段 WXSS 内联样式；可选择渐变隐藏或直接 display:none。
       const animated = this.data.animated
       let displayStyle = ''
       if (animated) {
@@ -93,6 +97,7 @@ Component({
       })
     },
     back() {
+      // 先按 delta 返回页面，再触发自定义 back 事件让父页面有机会响应。
       const data = this.data
       if (data.delta) {
         wx.navigateBack({

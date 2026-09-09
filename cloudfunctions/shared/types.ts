@@ -1,3 +1,5 @@
+// 云函数端共享领域类型。
+// 类型只用于编译期约束；数据库中的真实字段仍由各云函数写入。
 export type MeterType = 'light' | 'ac'
 export type MeterScheduleMode = 'normal' | 'near_threshold' | 'notified'
 
@@ -6,6 +8,7 @@ export type PowerRecordSource = 'queryPower' | 'scheduledCheck'
 export type OpsDashboardSnapshotStatus = 'success' | 'partial' | 'failed'
 
 export interface UserConfig {
+  // 一个用户的电表绑定和邮件提醒配置。
   _id?: string
   openid: string
   lightMeterId: string
@@ -17,6 +20,7 @@ export interface UserConfig {
 }
 
 export interface UserQueryState {
+  // 手动查询限流状态；每种电表分别保存上次查询时间和锁定截止时间。
   _id?: string
   openid: string
   lastManualLightQueryAt: Date
@@ -28,6 +32,7 @@ export interface UserQueryState {
 }
 
 export interface Meter {
+  // 电表当前状态和定时巡检所需的调度字段。
   _id?: string
   meterId: string
   type: MeterType
@@ -48,6 +53,7 @@ export interface Meter {
 }
 
 export interface PowerQueryResult {
+  // 一次上游电量页面查询的标准化结果。
   meterId: string
   remainingKwh?: number
   cutoffTime?: string
@@ -64,6 +70,7 @@ export interface PowerRecord extends PowerQueryResult {
 }
 
 export interface NotificationRecord {
+  // 低电量邮件通知的审计记录，用于去重、排查和看板统计。
   _id?: string
   openid: string
   email?: string
@@ -89,6 +96,7 @@ export interface JobLock {
 export type MeterCheckJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'expired'
 
 export interface MeterCheckJob {
+  // 定时巡检任务从“待执行”到“完成/失败/过期”的状态记录。
   _id?: string
   meterDocId?: string
   meterId: string
@@ -198,6 +206,7 @@ export interface OpsDashboardSnapshotJobRecord {
 }
 
 export interface OpsDashboardSnapshotDocument {
+  // 每日运营快照的完整结构；看板脚本直接消费其中的汇总和明细。
   _id?: string
   snapshotDate: string
   generatedAt: string

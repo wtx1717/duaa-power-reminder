@@ -1,3 +1,4 @@
+// 设置页：登录、选择宿舍、编辑电表号与邮箱、保存配置，以及解绑退出。
 import { clearAuthenticated, hasAuthenticated, loginWithWechat } from '../../services/auth'
 import {
   getCachedLoginResult,
@@ -31,6 +32,7 @@ import { createShareAppMessage, createShareTimeline } from '../../utils/share'
 const LOGIN_CACHE_MAX_AGE_MS = 5 * 60 * 1000
 
 function showConfirmModal(content: string): Promise<boolean> {
+  // 微信弹窗使用回调，这里包装成 Promise，调用方可以用 await 按顺序阅读确认流程。
   return new Promise((resolve) => {
     wx.showModal({
       title: '确认解绑',
@@ -48,6 +50,7 @@ function showConfirmModal(content: string): Promise<boolean> {
 }
 
 function formatUnbindError(error: unknown): string {
+  // 云函数错误可能是 Error、字符串或带 errMsg 的普通对象，先统一提取可读信息。
   let message = ''
 
   if (error instanceof Error) {
@@ -89,6 +92,7 @@ function formatUnbindError(error: unknown): string {
 }
 
 function resetUnboundState() {
+  // 解绑成功或检测到未登录时，恢复成“体验模式”的干净页面状态。
   return {
     openid: '',
     openidText: '体验模式',
@@ -124,6 +128,7 @@ Page({
   },
 
   onShow() {
+    // 页面每次显示时重新检查登录状态，保证从登录页或首页返回后数据是最新的。
     if (!hasAuthenticated()) {
       this.setData(resetUnboundState())
       return
@@ -153,6 +158,7 @@ Page({
   },
 
   applyLoginResult(result: LoginResult) {
+    // 把登录结果同步到全局状态和设置页；有宿舍映射时恢复四级选择器，否则进入手动模式。
     const config = result.config
     const lightMeterId = config ? config.lightMeterId : ''
     const acMeterId = config ? config.acMeterId : ''
@@ -180,6 +186,7 @@ Page({
   },
 
   async login(options: { silent?: boolean } = {}) {
+    // 普通登录显示加载状态，静默登录只更新缓存，且不会打断用户正在编辑的表单。
     if (options.silent && (this.data.loading || this.data.refreshingLogin)) {
       return
     }
@@ -239,6 +246,7 @@ Page({
   },
 
   requireLogin(): boolean {
+    // 保存和解绑都是服务端操作，必须先完成登录授权。
     if (hasAuthenticated()) {
       return true
     }
@@ -258,6 +266,7 @@ Page({
   },
 
   onCampusChange(event: PickerEvent) {
+    // 改变校区后，下级楼栋、楼层、房间和自动匹配电表全部失效，因此要重置。
     const campusIndex = Number(event.detail.value)
     const campus = this.data.campusOptions[campusIndex]
 
@@ -290,6 +299,7 @@ Page({
   },
 
   onBuildingChange(event: PickerEvent) {
+    // 改变楼栋后，只能保留当前校区；楼层以下的选项需要重新生成。
     const campus = this.data.campusOptions[this.data.campusIndex]
     const buildingIndex = Number(event.detail.value)
     const building = this.data.buildingOptions[buildingIndex]
@@ -319,6 +329,7 @@ Page({
   },
 
   onFloorChange(event: PickerEvent) {
+    // 改变楼层后，重新读取该楼层的房间列表，并清空旧房间对应的电表。
     const campus = this.data.campusOptions[this.data.campusIndex]
     const building = this.data.buildingOptions[this.data.buildingIndex]
     const floorIndex = Number(event.detail.value)
@@ -352,6 +363,7 @@ Page({
   },
 
   onRoomChange(event: PickerEvent) {
+    // 选中完整宿舍位置后，尝试从静态映射中填入照明和空调电表号。
     const campus = this.data.campusOptions[this.data.campusIndex]
     const building = this.data.buildingOptions[this.data.buildingIndex]
     const floor = this.data.floorOptions[this.data.floorIndex]
@@ -391,6 +403,7 @@ Page({
   },
 
   onLightMeterInput(event: InputEvent) {
+    // 手动修改电表号时清除自动匹配的地址和序列号提示。
     const lightMeterId = event.detail.value.trim()
     this.setData({
       lightMeterId,
@@ -420,6 +433,7 @@ Page({
   },
 
   buildSavePayload(silent = false): SaveConfigPayload | undefined {
+    // 在请求云函数前做一次前端校验，减少无效网络请求；silent 用于后台场景不显示错误。
     const payload: SaveConfigPayload = {
       lightMeterId: this.data.lightMeterId.trim(),
       acMeterId: this.data.acMeterId.trim(),
@@ -466,6 +480,7 @@ Page({
   },
 
   async onSaveConfig() {
+    // 保存流程：再次校验 -> 调用云函数 -> 更新缓存和首页状态 -> 提示用户。
     if (!this.requireLogin()) {
       return
     }
@@ -533,6 +548,7 @@ Page({
   },
 
   async onUnbindAndLogout() {
+    // 解绑由云函数完成，因为服务端还需要判断电表是否被其他用户共享以及清理任务。
     if (!this.requireLogin()) {
       return
     }

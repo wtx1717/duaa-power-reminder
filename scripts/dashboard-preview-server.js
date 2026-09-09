@@ -1,3 +1,5 @@
+// 本地运营看板预览服务器。
+// 它提供静态 HTML/快照文件，并通过 POST /api/refresh 重新生成看板。
 const fs = require('fs')
 const http = require('http')
 const path = require('path')
@@ -19,6 +21,7 @@ let refreshState = {
 }
 
 function contentType(filePath) {
+  // 根据扩展名设置响应头，让浏览器按正确类型处理文件。
   const ext = path.extname(filePath).toLowerCase()
   switch (ext) {
     case '.html': return 'text/html; charset=utf-8'
@@ -31,6 +34,7 @@ function contentType(filePath) {
 }
 
 function sendJson(res, statusCode, payload) {
+  // 所有 JSON 接口统一添加跨域和方法响应头，方便看板前端调用。
   const body = `${JSON.stringify(payload, null, 2)}\n`
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -76,6 +80,7 @@ function summarizeCommandError(error) {
 }
 
 function spawnRefreshCommand() {
+  // Windows 使用 cmd.exe 调用 npm.cmd，其他系统直接调用 npm。
   const command = process.platform === 'win32'
     ? 'cmd.exe'
     : 'npm'
@@ -132,6 +137,7 @@ function serveStaticFile(res, filePath) {
 }
 
 function resolveSnapshotFile(urlPath) {
+  // 将 URL 映射到快照目录，并拒绝解析后逃出目录的路径。
   const relative = path.normalize(urlPath.replace(/^\/snapshots\//, ''))
   const target = path.resolve(SNAPSHOT_DIR, relative)
   if (!target.startsWith(SNAPSHOT_DIR)) {
@@ -141,6 +147,7 @@ function resolveSnapshotFile(urlPath) {
 }
 
 async function handleRefresh(res) {
+  // 刷新接口只允许一个生成任务同时运行，避免多个进程互相覆盖输出。
   if (refreshState.running) {
     sendJson(res, 409, {
       ok: false,
@@ -191,6 +198,7 @@ async function handleRefresh(res) {
   }
 }
 
+// 根据请求方法和路径分发静态文件、状态查询和刷新接口。
 const server = http.createServer((req, res) => {
   const method = req.method || 'GET'
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || `${HOST}:${PORT}`}`)

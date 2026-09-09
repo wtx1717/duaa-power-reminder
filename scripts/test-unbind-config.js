@@ -1,3 +1,5 @@
+// 解绑与电表清理测试。
+// 验证共享电表保留、运行中任务延迟清理、待执行任务过期和重复解绑幂等。
 const assert = require('assert')
 const fs = require('fs')
 const Module = require('module')
@@ -137,6 +139,7 @@ function job(meterId, status, id) {
 }
 
 function makeDatabase({ configs = [], meters = [], jobs = [] } = {}) {
+  // 创建测试数据库并预置用户配置、电表和巡检任务。
   return new MockDatabase({
     user_configs: configs,
     user_query_state: [document({
@@ -288,6 +291,7 @@ async function testRunningJobsKeepMeterAndStopFuturePlanning() {
 }
 
 function testFrontendFlow() {
+  // 前端解绑流程也要调用 unbind 云函数，而不是只清本地缓存。
   const root = require('path').join(__dirname, '..', 'miniprogram')
   const appConfig = JSON.parse(fs.readFileSync(`${root}/app.json`, 'utf8'))
   const indexSource = fs.readFileSync(`${root}/pages/index/index.ts`, 'utf8')

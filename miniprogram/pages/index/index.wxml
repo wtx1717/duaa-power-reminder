@@ -1,11 +1,14 @@
+<!-- 首页结构：顶部标题 -> 当前绑定的电表 -> 查询按钮 -> 两块电表结果。 -->
 <navigation-bar title="宿舍电量提醒" back="{{false}}" color="black" background="#FFF"></navigation-bar>
 
 <scroll-view class="page" scroll-y type="list">
+  <!-- 显示应用名称和登录状态。 -->
   <view class="header">
     <view class="title">duaa 宿舍电量提醒</view>
     <view class="subtitle">{{openidText}}</view>
   </view>
 
+  <!-- 这里只展示绑定关系，不允许在首页直接修改电表号。 -->
   <view class="meter-summary">
     <view class="meter-summary-item">
       <text class="label">照明电表号</text>
@@ -22,6 +25,7 @@
     </view>
   </view>
 
+  <!-- 点击后由 index.ts 并行查询照明和空调电表。 -->
   <button
     class="query-button"
     loading="{{queryingAll}}"
@@ -31,6 +35,7 @@
     查询当前电量
   </button>
 
+  <!-- 每块电表根据 loading、result 和 result.ok 显示不同状态。 -->
   <view class="result-list">
     <view class="result-item">
       <view class="result-header">

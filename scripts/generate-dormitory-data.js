@@ -1,3 +1,5 @@
+// 宿舍电表数据生成脚本。
+// 输入学校导出的 JSON 快照，输出 miniprogram/data/dormitory-data.ts。
 const fs = require('fs')
 const path = require('path')
 
@@ -11,10 +13,12 @@ if (!lightAndShahePath || !xueyuanRoadAcPath || !outputPath) {
 }
 
 function readJson(filePath) {
+  // 统一读取 UTF-8 JSON，失败时让脚本直接退出并显示文件路径。
   return JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'))
 }
 
 function getOrCreate(object, key, factory) {
+  // 获取嵌套对象；不存在时按需创建，减少多级 if 判断。
   if (!object[key]) {
     object[key] = factory()
   }
@@ -23,6 +27,7 @@ function getOrCreate(object, key, factory) {
 }
 
 function setMeter(root, row, type) {
+  // 把一行学校数据写入“校区/楼栋/楼层/房间”的目标位置。
   const campus = getOrCreate(root, row.campus, () => ({}))
   const building = getOrCreate(campus, row.building, () => ({}))
   const floor = getOrCreate(building, String(row.floor), () => ({}))
@@ -42,6 +47,7 @@ function setMeter(root, row, type) {
 }
 
 function getXueyuanRoadBuildingName(building) {
+  // 学院路空调导出名称与照明数据名称不同，需要先归一化楼栋名。
   const value = String(building).replace(/^学生公寓/, '').replace(/空调$/, '')
   const eastWestMatch = value.match(/^(\d+)号楼(东|西)$/)
 
@@ -87,6 +93,7 @@ function sortKeys(object) {
 }
 
 function sortNestedObject(value) {
+  // 递归排序输出对象，保证生成文件在相同输入下稳定，便于 Git diff。
   if (!value || Array.isArray(value) || typeof value !== 'object') {
     return value
   }
@@ -101,10 +108,11 @@ function sortNestedObject(value) {
 }
 
 function createDataModule(root) {
+  // 生成带类型声明和版本号的 TypeScript 模块，而不是普通 JSON 文件。
   const json = JSON.stringify(sortNestedObject(root))
 
-  return `// Generated from the school's QueryIdData snapshots on 2026-09-03.
-// Run scripts/generate-dormitory-data.js to refresh this file.
+  return `// 数据来源：学校 QueryIdData 快照，采集日期为 2026-09-03。
+// 如需刷新此文件，请运行 scripts/generate-dormitory-data.js。
 export type DormitoryMeterTuple = readonly [identityNo: string, meterNo: string, address: string]
 
 export interface DormitoryRoomData {
@@ -123,6 +131,7 @@ export const DORMITORY_DATA: DormitoryData = ${json}
 `
 }
 
+// 两份来源数据分别包含照明/部分校区数据和学院路空调数据。
 const lightAndShahe = readJson(lightAndShahePath)
 const xueyuanRoadAc = readJson(xueyuanRoadAcPath)
 const root = {}

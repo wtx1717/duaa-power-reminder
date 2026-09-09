@@ -1,3 +1,5 @@
+// 定时日耗估算测试。
+// 验证最小采样窗口、低耗电过滤、充值识别和失败查询对当前状态的影响。
 const assert = require('assert')
 const Module = require('module')
 

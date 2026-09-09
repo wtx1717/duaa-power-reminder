@@ -1,3 +1,4 @@
+<!-- 登录页：品牌区域、授权按钮、隐私同意和错误提示。 -->
 <view class="page">
   <view class="brand">
     <image class="logo" src="/assets/login-logo.jpg" mode="aspectFit" aria-role="img" aria-label="项目 Logo" />
@@ -5,6 +6,7 @@
   </view>
 
   <view class="actions">
+    <!-- 勾选隐私协议后使用微信隐私授权事件，否则先提示用户勾选。 -->
     <button
       wx:if="{{privacyAgreed}}"
       class="login-button"

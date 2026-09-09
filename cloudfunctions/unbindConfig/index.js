@@ -1,3 +1,4 @@
+// unbindConfig 云函数：删除用户配置和限流状态，并安全清理不再共享的电表。
 const cloud = require('wx-server-sdk')
 const { cleanMeter } = require('./shared/meterCleanup')
 
@@ -59,6 +60,7 @@ function normalizeMeterId(value) {
 }
 
 async function getUserConfigs(db, openid) {
+  // 读取全部历史配置，兼容过去可能存在的重复配置记录。
   try {
     const result = await db.collection(COLLECTIONS.userConfigs).where({ openid }).get()
     return result.data
@@ -68,6 +70,7 @@ async function getUserConfigs(db, openid) {
 }
 
 function collectTargets(configs) {
+  // 按“电表类型 + 电表号”去重，避免重复清理同一目标。
   const targets = []
   const seen = new Set()
 
@@ -87,6 +90,7 @@ function collectTargets(configs) {
 }
 
 async function deleteUserConfigs(db, configs) {
+  // 删除配置时把“文档已经不存在”视为成功，从而保持解绑幂等。
   try {
     for (const config of configs) {
       if (config._id) {
@@ -105,6 +109,7 @@ async function deleteUserConfigs(db, configs) {
 }
 
 async function deleteUserQueryState(db, openid) {
+  // 删除手动查询限流状态；集合不存在时说明用户从未查询过，可直接忽略。
   try {
     const result = await db.collection(COLLECTIONS.userQueryState).where({ openid }).get()
 
@@ -129,6 +134,7 @@ async function deleteUserQueryState(db, openid) {
 }
 
 exports.main = async () => {
+  // 主流程：读取当前用户配置 -> 删除配置和限流状态 -> 逐块电表执行共享清理。
   const { OPENID } = cloud.getWXContext()
 
   if (!OPENID) {

@@ -1,3 +1,11 @@
+<!--
+  看板 HTML 模板。
+
+  这个模板既可以被 generate-dashboard-daily.js 生成成静态示例页面，
+  也可以作为本地预览页面的基础结构。真实快照模式会通过
+  scripts/dashboard-runtime.js 填充带有 id 的容器；文件底部的内嵌脚本
+  则提供没有快照服务时仍可打开页面的离线示例数据。
+-->
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -5,6 +13,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>运维看板预览</title>
   <style>
+    /* 颜色变量集中管理状态颜色和基础界面颜色，下面各组件通过 var(...) 复用。 */
     :root {
       --bg: #ffffff;
       --panel: #ffffff;
@@ -22,6 +31,7 @@
       --red-bg: #fff1ed;
     }
 
+    /* 全局基础规则：统一盒模型、隐藏状态和表单字体，减少浏览器默认差异。 */
     * {
       box-sizing: border-box;
     }
@@ -49,6 +59,7 @@
       font: inherit;
     }
 
+    /* 页面外壳、顶部信息区和内容区的宽度约束。 */
     .shell {
       min-height: 100vh;
     }
@@ -91,6 +102,7 @@
       line-height: 1.6;
     }
 
+    /* 顶部更新时间、状态图例等小型信息标签。 */
     .meta-row {
       display: flex;
       flex-wrap: wrap;
@@ -140,6 +152,7 @@
       background: rgba(181, 69, 47, 0.06);
     }
 
+    /* KPI 网格：宽屏显示多列，后面的媒体查询会在较窄屏幕减少列数。 */
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -176,6 +189,7 @@
       line-height: 1.45;
     }
 
+    /* 主内容按“状态摘要、 电表卡片、 通知表格”纵向排列。 */
     .content {
       padding: 18px 0 40px;
       display: grid;
@@ -213,6 +227,7 @@
       line-height: 1.5;
     }
 
+    /* 区块标题右侧的图例和其他操作控件。 */
     .section-tools {
       display: flex;
       flex-wrap: wrap;
@@ -237,6 +252,7 @@
       flex: 0 0 auto;
     }
 
+    /* 状态摘要卡片及其顶部状态色条。 */
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -314,6 +330,7 @@
       color: var(--accent);
     }
 
+    /* 电表总览：上方是密集状态矩阵，下方是可翻页的电表卡片。 */
     .section-body {
       padding: 18px;
     }
@@ -361,6 +378,7 @@
       background: #efc4b8;
     }
 
+    /* 电表卡片分页工具栏和卡片网格。 */
     .detail-toolbar {
       display: flex;
       align-items: center;
@@ -520,6 +538,7 @@
       font-weight: 600;
     }
 
+    /* 表格容器允许横向滚动，保证窄屏不会把列内容挤到不可读。 */
     .table-wrap {
       overflow-x: auto;
       background: #fff;
@@ -582,6 +601,7 @@
       color: var(--muted);
     }
 
+    /* 电表详情弹窗：遮罩铺满视口，内部内容限制最大高度并独立滚动。 */
     .meter-detail-mask {
       position: fixed;
       inset: 0;
@@ -744,6 +764,7 @@
       text-align: center;
     }
 
+    /* 弹窗在平板和手机宽度下改为更少的列，保证摘要和记录不溢出。 */
     @media (max-width: 720px) {
       .meter-detail-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -754,6 +775,7 @@
       }
     }
 
+    /* 最窄屏幕使用单列记录，并缩小弹窗内边距。 */
     @media (max-width: 480px) {
       .meter-detail-mask {
         padding: 10px;
@@ -772,6 +794,7 @@
       }
     }
 
+    /* 通知和任务状态标签的颜色。 */
     .tag {
       display: inline-flex;
       align-items: center;
@@ -804,12 +827,14 @@
       background: rgba(42, 105, 199, 0.08);
     }
 
+    /* 宽度断点：逐步降低 KPI 和状态摘要的列数。 */
     @media (max-width: 1480px) {
       .kpi-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
     }
 
+    /* 中等屏幕把标题和右侧信息改为纵向排列。 */
     @media (max-width: 920px) {
       .topbar-inner,
       .content {
@@ -833,6 +858,7 @@
       }
     }
 
+    /* 手机屏幕使用更窄的外边距和单列电表卡片。 */
     @media (max-width: 640px) {
       .topbar-inner,
       .content {
@@ -869,7 +895,9 @@
   </style>
 </head>
 <body>
+  <!-- 页面最外层容器；顶部栏固定包含品牌和 KPI，主体承载各业务区块。 -->
   <div class="shell">
+    <!-- 顶部概览区：更新时间是模板示例值，真实数据由运行时脚本更新。 -->
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand-row">
@@ -884,7 +912,9 @@
       </div>
     </header>
 
+    <!-- 主体区块按运营人员的阅读顺序排列。 -->
     <main class="content">
+      <!-- 状态摘要：展示四类电表状态的数量和含义。 -->
       <section class="section">
         <div class="section-head">
           <div class="section-title">
@@ -902,6 +932,7 @@
         <div class="summary-grid" id="summaryGrid"></div>
       </section>
 
+      <!-- 电表区：矩阵用于快速扫视，卡片用于查看单台电表详情。 -->
       <section class="section">
         <div class="section-head">
           <div class="section-title">
@@ -935,6 +966,7 @@
         </div>
       </section>
 
+      <!-- 通知明细表：运行时根据当前快照的 notificationRecords 填充表格行。 -->
       <section class="section">
         <div class="section-head">
           <div class="section-title">
@@ -962,6 +994,10 @@
     </main>
   </div>
 
+  <!--
+    电表详情弹窗默认 hidden。
+    点击电表卡片后脚本移除 hidden，并切换“查询记录/提醒通知”两个面板。
+  -->
   <div class="meter-detail-mask" id="meterDetailMask" hidden>
     <div class="meter-detail" role="dialog" aria-modal="true" aria-labelledby="meterDetailTitle">
       <div class="meter-detail-head">
@@ -983,7 +1019,13 @@
     </div>
   </div>
 
+  <!--
+    离线示例脚本。
+    它不负责读取云端或本地快照，而是用固定数据演示看板布局、分页和弹窗交互。
+    使用真实快照时，由生成后的页面改为加载 scripts/dashboard-runtime.js。
+  -->
   <script>
+    // 示例看板对象：字段形状与快照转换后的 dashboard 对象保持相近。
     const dashboard = {
       kpis: [
         { label: '用户数量', value: '8', foot: '已绑定账号' },
@@ -1028,6 +1070,7 @@
       ],
     };
 
+    // 缓存模板中的 DOM 节点，后续渲染函数通过这些引用更新页面。
     const kpiGrid = document.getElementById('kpiGrid');
     const summaryGrid = document.getElementById('summaryGrid');
     const meterMatrix = document.getElementById('meterMatrix');
@@ -1046,6 +1089,7 @@
     const meterDetailNotifyPanel = document.getElementById('meterDetailNotifyPanel');
     const meterDetailClose = document.getElementById('meterDetailClose');
 
+    // 将通知状态和渠道的英文枚举值转换成中文。
     const mailStatusLabel = {
       sent: '已发送',
       failed: '发送失败',
@@ -1057,6 +1101,7 @@
       email: '邮件',
     };
 
+    // 异常优先级最高，正常状态最低；排序后的结果用于矩阵和卡片显示。
     const meterOrder = {
       error: 0,
       warn: 1,
@@ -1069,6 +1114,7 @@
       pageSize: 100,
     };
 
+    // 补齐两位数字，供示例日期格式化使用。
     function pad2(value) {
       return String(value).padStart(2, '0');
     }
@@ -1077,6 +1123,7 @@
       return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
     }
 
+    // 将时间文本转为毫秒时间戳，方便按新旧排序。
     function parseDetailTime(value) {
       return new Date(String(value).replace(' ', 'T')).getTime();
     }
@@ -1092,6 +1139,7 @@
       return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
     }
 
+    // 为离线演示数据生成三条查询记录；这只是预览用的模拟数据，不会写入数据库。
     function buildMeterQueryRecords(item) {
       const current = Number.parseFloat(item.current);
       const daily = Number.parseFloat(item.daily);
@@ -1111,6 +1159,8 @@
       return records;
     }
 
+    // 根据记录类型生成查询记录或通知记录的 HTML。
+    // map() 把每条记录转换为一段 HTML，join('') 再将数组拼成一个字符串。
     function renderMeterDetailRecords(records, kind) {
       if (!records.length) {
         return '<div class="meter-detail-empty">当前电表没有相关记录。</div>';
@@ -1167,6 +1217,7 @@
       `;
     }
 
+    // 切换弹窗页签：active class 控制按钮样式，hidden 控制面板可见性。
     function setMeterDetailTab(tab) {
       meterDetailQueryTab.classList.toggle('active', tab === 'query');
       meterDetailNotifyTab.classList.toggle('active', tab === 'notify');
@@ -1174,6 +1225,7 @@
       meterDetailNotifyPanel.hidden = tab !== 'notify';
     }
 
+    // 打开某台电表的离线示例详情，并从 dashboard.mails 中筛选其通知记录。
     function openMeterDetail(item) {
       const queryRecords = buildMeterQueryRecords(item)
         .sort((left, right) => parseDetailTime(right.queriedAt) - parseDetailTime(left.queriedAt));
@@ -1207,10 +1259,13 @@
       meterDetailMask.hidden = false;
     }
 
+    // 通过 hidden 属性关闭弹窗。
     function closeMeterDetail() {
       meterDetailMask.hidden = true;
     }
 
+    // 为演示密集看板效果，把少量示例电表扩展成 120 台模拟电表。
+    // 这里使用 Array.from 和展开运算符复制基础对象，不改变原始 source 项。
     function expandMeters(source, total) {
       const states = ['error', 'warn', 'monitor', 'normal', 'normal', 'normal', 'normal'];
       const statusText = {
@@ -1255,6 +1310,7 @@
       });
     }
 
+    // 根据电表列表重新计算顶部总数和四类状态摘要。
     function updateOverviewData() {
       const counts = dashboard.meters.reduce((result, item) => {
         result[item.state] += 1;
@@ -1280,6 +1336,7 @@
     dashboard.meters = expandMeters(dashboard.meters, 120);
     updateOverviewData();
 
+    // 生成矩阵所需的轻量字段，避免把整条对象都传给矩阵渲染逻辑。
     function buildHeatmapSeries() {
       return sortedMeters.map((item) => ({
         id: item.id,
@@ -1293,6 +1350,7 @@
       }));
     }
 
+    // slice() 复制数组后再排序，避免改变 dashboard.meters 的原顺序。
     const sortedMeters = dashboard.meters.slice().sort((left, right) => {
       const stateDiff = meterOrder[left.state] - meterOrder[right.state];
       if (stateDiff !== 0) {
@@ -1301,6 +1359,7 @@
       return left.next.localeCompare(right.next);
     });
 
+    // 用状态色块绘制密集矩阵；悬停 title 展示单台电表的简要信息。
     function renderMeterMatrix() {
       meterMatrix.innerHTML = buildHeatmapSeries().map((item) => {
         const title = `${item.id} · ${item.type} · ${item.statusText} · 当前电量 ${item.current}`;
@@ -1310,6 +1369,7 @@
       }).join('');
     }
 
+    // 绘制当前页电表卡片，并更新分页信息和按钮禁用状态。
     function renderMeterCards() {
       const totalPages = Math.max(1, Math.ceil(sortedMeters.length / pagerState.pageSize));
       pagerState.page = Math.min(Math.max(pagerState.page, 1), totalPages);
@@ -1351,6 +1411,7 @@
       meterNext.disabled = pagerState.page >= totalPages;
     }
 
+    // 首次把 KPI 和状态摘要写入页面。
     kpiGrid.innerHTML = dashboard.kpis.map((item) => `
       <div class="kpi">
         <div class="kpi-label">${item.label}</div>
@@ -1367,9 +1428,11 @@
       </div>
     `).join('');
 
+    // 首次绘制电表矩阵和卡片。
     renderMeterMatrix();
     renderMeterCards();
 
+    // 分页按钮只修改页码，然后重新绘制卡片。
     meterPrev.addEventListener('click', () => {
       if (pagerState.page > 1) {
         pagerState.page -= 1;
@@ -1385,6 +1448,7 @@
       }
     });
 
+    // 电表卡片使用事件委托：容器只绑定一次，点击具体卡片时再根据 data-meter-id 查找数据。
     meterGrid.addEventListener('click', (event) => {
       const card = event.target.closest('.meter-card');
       if (!card) {
@@ -1396,6 +1460,7 @@
       }
     });
 
+    // 键盘 Enter/空格与鼠标点击执行相同操作，保证 role="button" 卡片可访问。
     meterGrid.addEventListener('keydown', (event) => {
       if ((event.key === 'Enter' || event.key === ' ') && event.target.classList.contains('meter-card')) {
         event.preventDefault();
@@ -1406,6 +1471,7 @@
       }
     });
 
+    // 详情弹窗支持关闭按钮、点击遮罩、页签切换和 Escape 键关闭。
     meterDetailClose.addEventListener('click', closeMeterDetail);
     meterDetailMask.addEventListener('click', (event) => {
       if (event.target === meterDetailMask) {
@@ -1420,6 +1486,7 @@
       }
     });
 
+    // 首次填充通知表格；示例数据不经过真实快照运行时的安全转义流程。
     mailTable.innerHTML = dashboard.mails.map((item) => `
       <tr>
         <td class="table-meter">${item.meter}</td>

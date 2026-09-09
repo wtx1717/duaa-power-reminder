@@ -1,3 +1,4 @@
+// 关于页面：展示项目链接、联系邮箱和赞赏码。
 import { createShareAppMessage, createShareTimeline } from '../../utils/share'
 
 const githubUrl = 'https://github.com/wtx1717/duaa-power-reminder'
@@ -21,6 +22,7 @@ Page({
   },
 
   onPreviewAppreciationCode() {
+    // previewImage 使用数组接口，即使当前只有一张图片也要传数组。
     wx.previewImage({
       urls: [appreciationCodeUrl],
       current: appreciationCodeUrl,

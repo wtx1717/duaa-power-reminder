@@ -1,3 +1,5 @@
+// scheduledCheck 云函数：找出到期电表并生成巡检任务。
+// 它只负责“规划”，实际查询由 scheduledCheckDispatch 调用共享执行器完成。
 const cloud = require('wx-server-sdk')
 const {
   ACTIVE_JOB_STATUSES,
@@ -25,6 +27,7 @@ cloud.init({
 })
 
 function asDate(value) {
+  // 云开发日期可能是 Date、带 toDate() 的对象或普通字符串，统一转换。
   if (!value) {
     return undefined
   }
@@ -47,6 +50,7 @@ function isCollectionNotFoundError(error) {
 }
 
 async function ensureCollection(db, collectionName) {
+  // 新环境可能还没有任务或锁集合，首次运行时按需创建。
   if (typeof db.createCollection !== 'function') {
     return
   }
@@ -61,6 +65,7 @@ async function ensureCollection(db, collectionName) {
 }
 
 async function acquireJobLock(db) {
+  // 用短期锁防止两个定时触发器同时规划出重复任务。
   const now = new Date()
   const lockedUntil = new Date(now.getTime() + LOCK_TTL_MS)
   const owner = `${LOCK_NAME}-${now.getTime()}-${Math.random().toString(16).slice(2)}`
@@ -104,6 +109,7 @@ async function acquireJobLock(db) {
   const current = existing.data[0]
   const currentLockedUntil = asDate(current && current.lockedUntil)
 
+  // 锁的截止时间仍在未来，说明另一个规划过程还没有结束。
   if (current && currentLockedUntil && currentLockedUntil > now) {
     return {
       acquired: false,
@@ -144,6 +150,7 @@ async function acquireJobLock(db) {
 }
 
 async function releaseJobLock(db, lock) {
+  // 规划结束后立即把锁设置为过去时间；失败只记录日志，不影响规划结果返回。
   if (!lock || lock.lockDisabled || !lock.lockId) {
     return
   }
@@ -162,6 +169,7 @@ async function releaseJobLock(db, lock) {
 }
 
 async function getDueMeters(db) {
+  // 只取 nextCheckAt 已到期的电表，并限制每轮最多规划 50 块。
   const _ = db.command
   const now = new Date()
 
@@ -175,6 +183,7 @@ async function getDueMeters(db) {
 }
 
 async function getActiveJobsByMeterId(db, meterIds) {
+  // 查询 pending 和 running 任务，避免同一电表在短时间内生成重复任务。
   if (!meterIds.length) {
     return new Map()
   }
@@ -214,6 +223,7 @@ async function getActiveJobsByMeterId(db, meterIds) {
 }
 
 async function expireStaleJobs(db) {
+  // 把超过 deadline 的活动任务改成 expired，释放电表再次规划的资格。
   const _ = db.command
 
   try {
@@ -249,6 +259,7 @@ async function expireStaleJobs(db) {
 }
 
 async function addMeterCheckJob(db, job) {
+  // 写入任务时补上创建和更新时间；集合不存在时先创建再重试。
   const now = db.serverDate()
   const data = {
     ...job.data,
@@ -269,6 +280,7 @@ async function addMeterCheckJob(db, job) {
 }
 
 async function planDueMeterChecks(db) {
+  // 规划核心：清理过期任务 -> 查询到期电表 -> 排除活动任务 -> 生成并保存新任务。
   const now = new Date()
   await expireStaleJobs(db)
   const dueMeters = await getDueMeters(db)
@@ -291,6 +303,7 @@ async function planDueMeterChecks(db) {
 }
 
 exports.main = async (event = {}) => {
+  // action=executeJob 是兼容入口；普通触发只执行计划生成。
   const db = cloud.database()
 
   if (event && event.action === 'executeJob') {
@@ -325,6 +338,7 @@ exports.main = async (event = {}) => {
     }
   }
 
+  // 只有在工作时间内才竞争规划锁，避免夜间产生无效任务。
   const lock = await acquireJobLock(db)
 
   if (!lock.acquired) {

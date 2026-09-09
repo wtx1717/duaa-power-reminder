@@ -1,3 +1,4 @@
+/* 关于页：信息区块、链接、赞赏码弹窗和版本号。 */
 page {
   height: 100vh;
   overflow: hidden;
@@ -136,6 +137,7 @@ page {
 }
 
 .modal-mask {
+  /* 遮罩层覆盖整个窗口，并通过较高 z-index 位于页面内容之上。 */
   position: fixed;
   top: 0;
   right: 0;

@@ -225,6 +225,94 @@ outputs/ops/dashboard-daily.html
 
 运营输出可能包含内部运行数据。将仓库设为公开前，请检查 `outputs/` 中的文件，避免提交用户信息、OpenID、邮箱、电表编号或其他敏感数据。
 
+## 代码阅读导览
+
+如果你没有 JavaScript 基础，建议按照下面的顺序阅读。这个项目不是把所有代码都放在一个文件里，而是把“页面显示”“网络调用”“云函数业务”和“数据库记录”分开了。
+
+### 推荐阅读顺序
+
+1. `miniprogram/types/domain.ts`：先看小程序端使用的数据类型，例如电表、用户配置和查询结果。
+2. `miniprogram/utils/power-state.ts`：了解页面状态是怎样创建和更新的。
+3. `miniprogram/services/api.ts`、`auth.ts`、`meter.ts`：了解小程序如何调用云函数。
+4. `miniprogram/pages/index/index.ts` 和 `settings/settings.ts`：了解首页查询、登录、配置保存和解绑流程。
+5. `cloudfunctions/shared/types.ts` 和 `db.ts`：了解云函数端的数据库集合与数据结构。
+6. `cloudfunctions/queryPower/index.js`、`saveConfig/index.js` 和 `unbindConfig/index.js`：了解实时查询、绑定和解绑。
+7. `cloudfunctions/scheduledCheck/index.js`、`scheduledCheckDispatch/index.js` 以及 `shared/scheduledExecutor.js`：了解定时巡检的计划、分发和执行。
+8. `cloudfunctions/scheduledDashboardSnapshot/index.js`、`scripts/generate-dashboard-daily.js` 和 `scripts/dashboard-runtime.js`：了解运营数据如何生成并展示。
+
+### 一次实时查询的流程
+
+1. 用户在首页点击“查询当前电量”。
+2. `miniprogram/pages/index/index.ts` 同时为照明和空调调用 `queryPower()`。
+3. `miniprogram/services/api.ts` 通过 `wx.cloud.callFunction()` 发起云函数调用。
+4. `cloudfunctions/queryPower/index.js` 检查用户是否绑定了该电表，并检查手动查询限流状态。
+5. 云函数请求学校电量页面，解析剩余电量、截止时间和地址。
+6. 查询结果写入 `power_records`，电表当前状态写入 `meters`。
+7. 结果返回小程序，小程序更新页面状态和本地缓存。
+
+### 一次定时巡检的流程
+
+1. `scheduledCheck` 在允许的工作时间运行。
+2. 它找出到达 `nextCheckAt` 的电表，跳过正在执行任务的电表。
+3. `shared/scheduledPlanner.js` 为电表生成随机分布在 25 分钟窗口内的任务。
+4. 任务写入 `meter_check_jobs`，由 `scheduledCheckDispatch` 按计划时间取出。
+5. 分发函数限制并发量，并调用 `shared/scheduledExecutor.js` 执行查询。
+6. 执行器更新电表用量估算、下次检查时间和任务状态。
+7. 若电量低于提醒阈值，执行器调用 `sendEmailNotification`。
+8. 邮件发送结果写入 `notification_records`，便于去重和运营统计。
+
+### 运营看板流程
+
+1. `scheduledDashboardSnapshot` 按北京时间生成当天的数据库快照。
+2. 快照汇总用户数、电表状态、查询记录、通知记录和任务记录。
+3. `scripts/generate-dashboard-daily.js` 读取快照并生成本地看板 HTML。
+4. `scripts/dashboard-runtime.js` 在浏览器中加载快照索引、切换日期、渲染表格和显示电表详情。
+5. `scripts/dashboard-preview-server.js` 提供本地静态文件和看板刷新接口。
+
+### 数据库集合关系
+
+| 集合 | 作用 |
+| --- | --- |
+| `user_configs` | 保存用户与两块电表、提醒邮箱之间的绑定关系。 |
+| `meters` | 保存电表当前状态、失败次数、用量估算和下次检查时间。 |
+| `power_records` | 保存每次成功或失败的电量查询结果。 |
+| `user_query_state` | 保存手动查询的时间戳和锁，防止短时间重复查询。 |
+| `meter_check_jobs` | 保存定时巡检任务及其执行状态。 |
+| `notification_records` | 保存低电量提醒的发送、失败或跳过记录。 |
+| `job_locks` | 防止多个定时计划函数同时生成重复任务。 |
+| `ops_dashboard_snapshots` | 保存每日运营看板快照。 |
+
+### 常见 JavaScript / TypeScript 语法
+
+| 写法 | 在本项目中的含义 |
+| --- | --- |
+| `const` / `let` | 声明变量；`const` 不能重新赋值，`let` 可以重新赋值。 |
+| `async function` | 声明异步函数，通常用于数据库或网络操作。 |
+| `await` | 等待一个 Promise 完成，让异步代码按顺序阅读。 |
+| `Promise.all([...])` | 同时等待多个异步操作，首页用它同时查询两块电表。 |
+| `{ ...oldState, value }` | 展开旧对象，再用后面的字段覆盖同名字段。 |
+| `const { OPENID } = context` | 从对象中取出名为 `OPENID` 的属性。 |
+| `value ? a : b` | 条件表达式，条件成立取 `a`，否则取 `b`。 |
+| `value?.field` | 可选链；`value` 不存在时不会报错，而是得到 `undefined`。 |
+| `type A = 'x' \| 'y'` | TypeScript 联合类型，表示值只能是列出的几种情况。 |
+| `interface A { ... }` | TypeScript 对对象形状的说明，只在编译阶段帮助检查。 |
+| `as SomeType` | 类型断言，告诉 TypeScript 按指定类型理解一个值，不会改变运行时数据。 |
+| `map` / `filter` / `reduce` | 分别用于转换数组、筛选数组和汇总数组。 |
+| `try ... catch ... finally` | 捕获错误；`finally` 中的代码无论成功失败都会执行。 |
+
+### 配置文件说明
+
+JSON 格式本身不允许写注释，因此 `app.json`、页面 JSON、云函数 `config.json`、`package.json` 等文件保持严格 JSON 格式。它们的职责如下：
+
+- `project.config.json`：微信开发者工具的项目根目录、编译器和渲染器配置。
+- `project.private.config.json`：本地开发专用的 AppID 和开发者工具设置，不应提交到公开仓库。
+- `miniprogram/app.json`：小程序页面列表、导航栏、TabBar、隐私检查和渲染器设置。
+- 各页面或组件目录下的 `.json`：声明页面/组件是否使用自定义导航栏、组件和局部配置。
+- 云函数目录下的 `package.json`：声明云函数入口文件和依赖。
+- 云函数目录下的 `config.json`：声明定时触发器及其 Cron 表达式。
+- 根目录 `package.json`：声明测试、看板生成、预览服务等本地命令。
+- `.env`：本地或看板脚本使用的敏感配置，不能提交真实密钥。
+
 ## 定时任务
 
 项目当前包含以下定时任务配置：
