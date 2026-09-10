@@ -4,6 +4,7 @@ const assert = require('assert')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const vm = require('vm')
 
 const {
   DEFAULT_TEMPLATE_PATH,
@@ -71,7 +72,7 @@ async function testGenerateDashboardFile() {
         status: 'success',
         kpis: [{ label: '用户数量', value: '1', foot: '已绑定账号' }],
         summary: [{ key: 'normal', title: '正常状态', count: 1, note: '运行稳定' }],
-        meters: [{ meterId: 'M-001', type: 'light', state: 'normal', stateText: '正常', currentKwh: 10, dailyUsageKwh: 1, failCount: 0, nextCheckAt: '2026-09-04T05:00:00.000Z' }],
+        meters: [{ meterId: 'M-001', type: 'light', state: 'normal', stateText: '正常', currentKwh: 10, dailyUsageKwh: 1, failCount: 0, nextCheckAt: '2026-09-04T05:00:00.000Z', isColdStart: true }],
         powerRecords: [],
         notificationRecords: [],
         jobRecords: [],
@@ -88,7 +89,12 @@ async function testGenerateDashboardFile() {
   assert(rendered.includes('snapshotMonthList'), 'generated html should include month list')
   assert(rendered.includes('snapshotCalendar'), 'generated html should include calendar selector')
   assert(rendered.includes('refreshDataBtn'), 'generated html should include refresh button')
-  assert(rendered.includes('jobTable'), 'generated html should include job table')
+  assert(rendered.includes('<div class="meter-matrix" id="meterMatrix">'), 'generated html should include meter matrix container')
+  assert(rendered.includes('<div class="meter-grid" id="meterGrid">'), 'generated html should include meter card container')
+  assert(rendered.includes('<tbody id="jobTable"></tbody>'), 'generated html should include job table container')
+  assert(rendered.includes('cold-start-badge'), 'generated html should include cold-start badge styles and renderer')
+  assert(rendered.includes('估算阶段'), 'generated html should include estimate stage detail')
+  assert(rendered.includes('阶段未知'), 'generated html should support legacy snapshots without stage field')
   assert(!rendered.includes('const dashboardSnapshots = ['), 'generated html should not embed full snapshot data')
   assert(rendered.includes('const REFRESH_API_URL ='), 'generated html should include preview server endpoint')
 
@@ -112,6 +118,40 @@ function testSnapshotManifest() {
   assert.deepStrictEqual(manifest.snapshotDates, ['2026-09-05', '2026-09-04'])
 }
 
+function testDashboardMeterStages() {
+  // 只执行运行时的数据适配部分，避免测试依赖浏览器 DOM。
+  const runtimePath = path.join(__dirname, 'dashboard-runtime.js')
+  const runtimeSource = fs.readFileSync(runtimePath, 'utf8')
+  const mainMarker = '// 使用立即执行函数隔离局部变量'
+  const adapterSource = runtimeSource.slice(0, runtimeSource.indexOf(mainMarker))
+  const context = {
+    window: { location: { origin: 'http://127.0.0.1:33123' } },
+  }
+
+  vm.runInNewContext(`${adapterSource}\nthis.runtimeAdapters = { normalizeMeter, snapshotToDashboard };`, context)
+  const { normalizeMeter, snapshotToDashboard } = context.runtimeAdapters
+  const cold = normalizeMeter({ meterId: 'cold', type: 'light', state: 'normal', isColdStart: true })
+  const stable = normalizeMeter({ meterId: 'stable', type: 'ac', state: 'normal', isColdStart: false })
+  const legacy = normalizeMeter({ meterId: 'legacy', type: 'light', state: 'normal' })
+
+  assert.strictEqual(cold.coldStartText, '冷启动')
+  assert.strictEqual(stable.coldStartText, '稳定阶段')
+  assert.strictEqual(legacy.coldStartText, '阶段未知')
+  assert.strictEqual(legacy.coldStartKnown, false)
+  assert.strictEqual(cold.state, 'normal', 'cold-start stage should not change health state')
+
+  const dashboard = snapshotToDashboard({
+    meters: [
+      { meterId: 'cold', type: 'light', state: 'warn', isColdStart: true },
+      { meterId: 'legacy', type: 'ac', state: 'error' },
+    ],
+  })
+  assert.strictEqual(dashboard.meters[0].state, 'warn')
+  assert.strictEqual(dashboard.meters[0].coldStartText, '冷启动')
+  assert.strictEqual(dashboard.meters[1].state, 'error')
+  assert.strictEqual(dashboard.meters[1].coldStartText, '阶段未知')
+}
+
 async function main() {
   testSortSnapshots()
   testTemplatePath()
@@ -119,6 +159,7 @@ async function main() {
   testDotEnvParsing()
   testDotEnvFileLoading()
   testSnapshotManifest()
+  testDashboardMeterStages()
   await testGenerateDashboardFile()
   console.log('OK: dashboard daily helper tests passed.')
 }

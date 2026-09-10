@@ -144,6 +144,7 @@ function buildFixtureDatabase() {
         type: 'light',
         lastRemainingKwh: 40,
         estimatedDailyUsageKwh: 1.2,
+        isColdStart: true,
         failCount: 0,
         scheduleMode: 'normal',
         lastQueriedAt: makeDate('2026-09-04T01:00:00.000Z'),
@@ -155,6 +156,7 @@ function buildFixtureDatabase() {
         type: 'ac',
         lastRemainingKwh: 24,
         estimatedDailyUsageKwh: 2.4,
+        isColdStart: false,
         failCount: 0,
         scheduleMode: 'normal',
         lastQueriedAt: makeDate('2026-09-04T02:00:00.000Z'),
@@ -381,8 +383,14 @@ async function testBuildSnapshot() {
   assert.strictEqual(meter1.notifyCount, 1)
   assert.strictEqual(meter1.latestAddress, 'A2')
   assert.strictEqual(meter1.state, 'normal')
+  assert.strictEqual(meter1.isColdStart, true)
   assert(meter4, 'meter M-004 should exist in snapshot')
   assert.strictEqual(meter4.state, 'error')
+
+  const meter2 = snapshot.meters.find((item) => item.meterId === 'M-002')
+  const meter3 = snapshot.meters.find((item) => item.meterId === 'M-003')
+  assert.strictEqual(meter2.isColdStart, false, 'explicit stable state should be preserved')
+  assert.strictEqual(meter3.isColdStart, true, 'missing state should default to cold start')
 
   assert.strictEqual(snapshot.kpis[0].value, '2')
   assert.strictEqual(snapshot.kpis[1].value, '4')

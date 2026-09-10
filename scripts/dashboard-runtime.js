@@ -75,6 +75,8 @@ async function loadJson(url) {
 // 将不同版本或不同来源的电表字段整理为页面统一使用的字段。
 // 展开运算符 ...item 先保留原字段，再用下面的标准字段覆盖或补充显示值。
 function normalizeMeter(item) {
+  const coldStartKnown = item && (item.isColdStart === true || item.isColdStart === false);
+  const isColdStart = coldStartKnown ? item.isColdStart : undefined;
   return {
     ...item,
     id: String(item.meterId || item.id || '').trim(),
@@ -85,6 +87,9 @@ function normalizeMeter(item) {
     next: formatTime(item.nextCheckAt || item.next),
     state: STATE_LABEL[item.state] ? item.state : 'normal',
     statusText: item.stateText || STATE_LABEL[item.state] || '正常',
+    isColdStart,
+    coldStartKnown,
+    coldStartText: coldStartKnown ? (isColdStart ? '冷启动' : '稳定阶段') : '阶段未知',
   };
 }
 
@@ -538,7 +543,7 @@ function buildSnapshotCatalog(entries) {
   // 绘制电表状态矩阵。每个小方块只承担状态概览，详细信息放在下面的卡片中。
   function renderMeterMatrix(meters) {
     meterMatrix.innerHTML = meters.length
-      ? meters.map((item) => `<span class="meter-tile ${item.state}" title="${escapeHtml(`${item.id} · ${item.type} · ${item.statusText}`)}" aria-label="${escapeHtml(item.id)}"></span>`).join('')
+      ? meters.map((item) => `<span class="meter-tile ${item.state}" title="${escapeHtml(`${item.id} · ${item.type} · ${item.statusText}${item.coldStartKnown ? ` · ${item.coldStartText}` : ''}`)}" aria-label="${escapeHtml(item.id)}"></span>`).join('')
       : '<div class="meter-detail-empty">当前快照没有电表数据。</div>';
   }
 
@@ -565,7 +570,10 @@ function buildSnapshotCatalog(entries) {
             <div class="meter-id">${escapeHtml(item.id)}</div>
             <div class="meter-type">类型：${escapeHtml(item.type)}</div>
           </div>
-          <span class="status-pill ${item.state}">${escapeHtml(item.statusText)}</span>
+          <div class="meter-head-badges">
+            ${item.isColdStart === true ? '<span class="cold-start-badge">冷启动</span>' : ''}
+            <span class="status-pill ${item.state}">${escapeHtml(item.statusText)}</span>
+          </div>
         </div>
         <div class="meter-stats">
           <div class="stat"><div class="stat-label">当前电量</div><div class="stat-value">${escapeHtml(item.current)}</div></div>
@@ -624,6 +632,7 @@ function buildSnapshotCatalog(entries) {
       <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">日耗</div><div class="meter-detail-summary-value">${escapeHtml(item.daily)}</div></div>
       <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">失败次数</div><div class="meter-detail-summary-value">${escapeHtml(`${item.fail} 次`)}</div></div>
       <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">下次检查时间</div><div class="meter-detail-summary-value">${escapeHtml(item.next)}</div></div>
+      <div class="meter-detail-summary-item"><div class="meter-detail-summary-label">估算阶段</div><div class="meter-detail-summary-value">${escapeHtml(item.coldStartText)}</div></div>
     `;
   }
 
@@ -665,7 +674,7 @@ function buildSnapshotCatalog(entries) {
 
   // 异步请求尚未结束时先显示加载状态，避免用户误以为弹窗没有响应。
   function renderDetailLoading(item) {
-    renderDetailShell(item, `当前状态：${item.statusText}，正在加载近 7 天查询记录和提醒通知。`);
+    renderDetailShell(item, `当前状态：${item.statusText}，估算阶段：${item.coldStartText}，正在加载近 7 天查询记录和提醒通知。`);
     meterDetailQueryPanel.innerHTML = '<div class="meter-detail-empty">正在加载近 7 天查询记录...</div>';
     meterDetailNotifyPanel.innerHTML = '<div class="meter-detail-empty">正在加载近 7 天提醒通知...</div>';
     renderDetailTabs();
@@ -682,14 +691,14 @@ function buildSnapshotCatalog(entries) {
         return;
       }
 
-      renderDetailShell(item, `当前状态：${item.statusText}，近 7 天查询记录 ${queryRecords.length} 条，提醒记录 ${notifyRecords.length} 条。`);
+      renderDetailShell(item, `当前状态：${item.statusText}，估算阶段：${item.coldStartText}，近 7 天查询记录 ${queryRecords.length} 条，提醒记录 ${notifyRecords.length} 条。`);
       renderDetailRecords(queryRecords, notifyRecords);
     } catch (error) {
       if (state.activeMeterId !== item.id || meterDetailMask.hidden) {
         return;
       }
 
-      renderDetailShell(item, `当前状态：${item.statusText}，近 7 天明细加载失败。`);
+      renderDetailShell(item, `当前状态：${item.statusText}，估算阶段：${item.coldStartText}，近 7 天明细加载失败。`);
       meterDetailQueryPanel.innerHTML = `<div class="meter-detail-empty">近 7 天查询记录加载失败：${escapeHtml(error instanceof Error ? error.message : String(error))}</div>`;
       meterDetailNotifyPanel.innerHTML = `<div class="meter-detail-empty">近 7 天提醒通知加载失败：${escapeHtml(error instanceof Error ? error.message : String(error))}</div>`;
       renderDetailTabs();

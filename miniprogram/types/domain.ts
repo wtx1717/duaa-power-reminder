@@ -25,6 +25,7 @@ export interface MeterSnapshot {
   checkIntervalMinutes?: number
   estimatedDailyUsageKwh?: number
   scheduleMode?: MeterScheduleMode
+  isColdStart?: boolean
   cleanupPending?: boolean
   cleanupReason?: string
   lastRechargeDetectedAt?: string

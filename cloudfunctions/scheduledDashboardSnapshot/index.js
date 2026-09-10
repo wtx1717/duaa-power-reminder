@@ -185,6 +185,8 @@ function toMeterSnapshot(meter, queriesByMeter, notificationsByMeter) {
     : null
   const type = meter.type === 'ac' ? 'ac' : 'light'
   const state = getMeterState(meter)
+  // 新字段缺失于历史电表时按冷启动处理，确保调度保护状态不会被误判为稳定。
+  const isColdStart = meter.isColdStart !== false
 
   return {
     meterId,
@@ -200,6 +202,7 @@ function toMeterSnapshot(meter, queriesByMeter, notificationsByMeter) {
     nextCheckAt: isoOrEmpty(meter.nextCheckAt),
     queriedAt: isoOrEmpty(meter.lastQueriedAt),
     scheduleMode: meter.scheduleMode || 'normal',
+    isColdStart,
     lastError: String(meter.lastError || ''),
     latestAddress: String((latestQuery && latestQuery.address) || ''),
     latestCutoffTime: String((latestQuery && latestQuery.cutoffTime) || ''),

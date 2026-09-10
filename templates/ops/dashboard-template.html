@@ -470,6 +470,15 @@
       gap: 10px;
     }
 
+    .meter-head-badges {
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-width: 58%;
+    }
+
     .meter-id {
       font-size: 20px;
       line-height: 1.1;
@@ -486,6 +495,20 @@
 
     .status-pill {
       padding: 6px 9px;
+      white-space: nowrap;
+    }
+
+    .cold-start-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 9px;
+      border: 1px solid rgba(42, 105, 199, 0.26);
+      border-radius: 999px;
+      background: rgba(42, 105, 199, 0.08);
+      color: var(--blue);
+      font-size: 12px;
+      line-height: 1;
       white-space: nowrap;
     }
 
@@ -659,7 +682,7 @@
 
     .meter-detail-summary {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
       padding: 14px 18px;
       border-bottom: 1px solid var(--line);
@@ -846,6 +869,7 @@
       }
 
       .meta-row {
+        width: 100%;
         justify-content: flex-start;
       }
 
@@ -873,6 +897,21 @@
         font-size: 24px;
       }
 
+      .meta-row {
+        width: 100%;
+        min-width: 0;
+        justify-content: flex-start;
+        align-items: flex-start;
+      }
+
+      .meta-chip {
+        min-width: 0;
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.35;
+      }
+
       .kpi-grid {
         grid-template-columns: 1fr;
       }
@@ -881,6 +920,18 @@
       .section-body {
         padding-left: 14px;
         padding-right: 14px;
+      }
+
+      .section-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .section-tools,
+      .legend {
+        width: 100%;
+        justify-content: flex-start;
       }
 
       .summary-grid {
@@ -1043,8 +1094,8 @@
         { key: 'error', title: '异常状态', count: 3, note: '优先处理与回溯' },
       ],
       meters: [
-        { id: '21-4-412', type: '照明', current: '18.4 kWh', daily: '2.1 kWh', fail: 0, next: '2026-09-04 13:20', state: 'normal', statusText: '正常' },
-        { id: '21-4-405', type: '空调', current: '24.0 kWh', daily: '3.8 kWh', fail: 1, next: '2026-09-04 13:40', state: 'normal', statusText: '正常' },
+        { id: '21-4-412', type: '照明', current: '18.4 kWh', daily: '2.1 kWh', fail: 0, next: '2026-09-04 13:20', state: 'normal', statusText: '正常', isColdStart: true },
+        { id: '21-4-405', type: '空调', current: '24.0 kWh', daily: '3.8 kWh', fail: 1, next: '2026-09-04 13:40', state: 'normal', statusText: '正常', isColdStart: false },
         { id: '20-3-316', type: '照明', current: '16.7 kWh', daily: '4.5 kWh', fail: 0, next: '2026-09-04 14:10', state: 'normal', statusText: '正常' },
         { id: '20-4-423', type: '空调', current: '21.8 kWh', daily: '6.2 kWh', fail: 0, next: '2026-09-04 14:25', state: 'normal', statusText: '正常' },
         { id: '21-2-212', type: '照明', current: '14.9 kWh', daily: '7.4 kWh', fail: 1, next: '2026-09-04 12:55', state: 'normal', statusText: '正常' },
@@ -1137,6 +1188,20 @@
         return String(value);
       }
       return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+    }
+
+    function getColdStartText(item) {
+      if (item.isColdStart === true) {
+        return '冷启动';
+      }
+      if (item.isColdStart === false) {
+        return '稳定阶段';
+      }
+      return '阶段未知';
+    }
+
+    function renderColdStartBadge(item) {
+      return item.isColdStart === true ? '<span class="cold-start-badge">冷启动</span>' : '';
     }
 
     // 为离线演示数据生成三条查询记录；这只是预览用的模拟数据，不会写入数据库。
@@ -1234,7 +1299,7 @@
         .sort((left, right) => parseDetailTime(right.time) - parseDetailTime(left.time));
 
       meterDetailTitle.textContent = `${item.id} · ${item.type}`;
-      meterDetailSubtitle.textContent = `当前状态：${item.statusText}，查询记录 ${queryRecords.length} 条，提醒记录 ${notifyRecords.length} 条。`;
+      meterDetailSubtitle.textContent = `当前状态：${item.statusText}，估算阶段：${getColdStartText(item)}，查询记录 ${queryRecords.length} 条，提醒记录 ${notifyRecords.length} 条。`;
       meterDetailSummary.innerHTML = `
         <div class="meter-detail-summary-item">
           <div class="meter-detail-summary-label">当前电量</div>
@@ -1251,6 +1316,10 @@
         <div class="meter-detail-summary-item">
           <div class="meter-detail-summary-label">下次检查时间</div>
           <div class="meter-detail-summary-value">${item.next}</div>
+        </div>
+        <div class="meter-detail-summary-item">
+          <div class="meter-detail-summary-label">估算阶段</div>
+          <div class="meter-detail-summary-value">${getColdStartText(item)}</div>
         </div>
       `;
       meterDetailQueryPanel.innerHTML = renderMeterDetailRecords(queryRecords, 'query');
@@ -1383,7 +1452,10 @@
               <div class="meter-id">${item.id}</div>
               <div class="meter-type">类型：${item.type}</div>
             </div>
-            <span class="status-pill ${item.state}">${item.statusText}</span>
+            <div class="meter-head-badges">
+              ${renderColdStartBadge(item)}
+              <span class="status-pill ${item.state}">${item.statusText}</span>
+            </div>
           </div>
           <div class="meter-stats">
             <div class="stat">

@@ -25,6 +25,9 @@ const RECHARGE_DELTA_KWH = 5
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS = 4
 const MIN_OBSERVED_DAILY_USAGE_KWH = 1
+const MAX_NEXT_CHECK_DAYS = 12
+const DAILY_USAGE_SPIKE_THRESHOLD_KWH = 3
+const COLD_START_MAX_NEXT_CHECK_DAYS = 4
 
 function stripTags(value) {
   // 解析网页前先去掉标签；这里保留纯文本，不使用完整 DOM 解析器。
@@ -272,7 +275,11 @@ function calculateScheduleState(input) {
   const thresholdKwh = DEFAULT_REMINDER_THRESHOLD_KWH
   const previousMode = meter.scheduleMode || 'normal'
   const previousEstimate = normalizeEstimatedDailyUsageKwh(meter.estimatedDailyUsageKwh)
+  // 缺少该字段的历史电表按冷启动处理；只有显式 false 才表示已完成冷启动。
+  const wasColdStart = meter.isColdStart !== false
   let estimatedDailyUsageKwh = previousEstimate
+  let dailyUsageUpdated = false
+  let isColdStart = wasColdStart
   let rechargeDetected = false
   let scheduleMode = ['normal', 'near_threshold', 'notified'].includes(previousMode)
     ? previousMode
@@ -291,6 +298,8 @@ function calculateScheduleState(input) {
       lastRechargeDetectedAt,
       lowPowerNotifiedAt,
       previousMode,
+      dailyUsageUpdated,
+      isColdStart,
     }
   }
 
@@ -310,14 +319,30 @@ function calculateScheduleState(input) {
 
   // 只有跨过至少 4 天且观察到的日耗不低于 1 kWh，才更新估算，避免短期噪声污染。
   if (!rechargeDetected && estimateBaseRemainingKwh !== undefined && estimateBaseQueriedAt) {
-    const elapsedDays = (record.queriedAt.getTime() - estimateBaseQueriedAt.getTime()) / ONE_DAY_MS
+    const currentQueriedAt = asDate(record.queriedAt)
+    const elapsedDays = currentQueriedAt
+      ? (currentQueriedAt.getTime() - estimateBaseQueriedAt.getTime()) / ONE_DAY_MS
+      : 0
     const observedDailyUsage = (estimateBaseRemainingKwh - record.remainingKwh) / elapsedDays
 
     if (
       elapsedDays >= MIN_ESTIMATE_SAMPLE_INTERVAL_DAYS
+      && Number.isFinite(observedDailyUsage)
       && observedDailyUsage >= MIN_OBSERVED_DAILY_USAGE_KWH
     ) {
+      const usageDifference = observedDailyUsage - previousEstimate
+      const absoluteDifference = Math.abs(usageDifference)
+
+      if (absoluteDifference >= DAILY_USAGE_SPIKE_THRESHOLD_KWH) {
+        estimatedDailyUsageKwh = usageDifference > 0
+          ? previousEstimate * 0.4 + observedDailyUsage * 0.6
+          : previousEstimate * 0.6 + observedDailyUsage * 0.4
+      } else {
         estimatedDailyUsageKwh = previousEstimate * 0.8 + observedDailyUsage * 0.2
+      }
+
+      dailyUsageUpdated = true
+      isColdStart = false
     }
   }
 
@@ -339,7 +364,11 @@ function calculateScheduleState(input) {
     // 电量充足时，根据“距离阈值 / 日耗 - 安全余量”安排下一次检查。
     scheduleMode = 'normal'
     const daysUntilThreshold = distanceToThreshold / estimatedDailyUsageKwh
-    const daysUntilNextCheck = Math.max(1, daysUntilThreshold - SAFETY_MARGIN_DAYS)
+    const calculatedDaysUntilNextCheck = Math.max(1, daysUntilThreshold - SAFETY_MARGIN_DAYS)
+    const maxNextCheckDays = wasColdStart
+      ? COLD_START_MAX_NEXT_CHECK_DAYS
+      : MAX_NEXT_CHECK_DAYS
+    const daysUntilNextCheck = Math.min(calculatedDaysUntilNextCheck, maxNextCheckDays)
     nextCheckAt = new Date(now.getTime() + daysUntilNextCheck * ONE_DAY_MS)
     lowPowerNotifiedAt = null
   }
@@ -352,6 +381,8 @@ function calculateScheduleState(input) {
     lastRechargeDetectedAt,
     lowPowerNotifiedAt,
     previousMode,
+    dailyUsageUpdated,
+    isColdStart,
   }
 }
 
@@ -439,6 +470,7 @@ async function updateMeter(db, meter, record, type, options) {
     meter,
     record,
     previousRecord: options && options.previousRecord,
+    estimateBaseRecord: options && options.estimateBaseRecord,
     now: record.queriedAt,
   })
   const data = {
@@ -448,6 +480,7 @@ async function updateMeter(db, meter, record, type, options) {
     checkIntervalMinutes,
     estimatedDailyUsageKwh: schedule.estimatedDailyUsageKwh,
     scheduleMode: schedule.scheduleMode,
+    isColdStart: schedule.isColdStart,
     lastRechargeDetectedAt: schedule.lastRechargeDetectedAt || null,
     lowPowerNotifiedAt: schedule.lowPowerNotifiedAt || null,
     failCount: record.ok ? 0 : ((meter && meter.failCount) || 0) + 1,

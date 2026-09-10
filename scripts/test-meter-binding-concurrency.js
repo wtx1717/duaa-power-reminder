@@ -148,6 +148,9 @@ async function testSaveConfigConcurrency() {
   assert.strictEqual(database.collections.user_configs.length, 1, 'first bind should create one user config')
   const lightMeter = database.collections.meters.find((meter) => meter.meterId === input.lightMeterId)
   assert(lightMeter.nextCheckAt instanceof Date, 'new meter should initialize nextCheckAt')
+  assert.strictEqual(lightMeter.isColdStart, true, 'new meter should start in cold-start phase')
+  const acMeter = database.collections.meters.find((meter) => meter.meterId === input.acMeterId)
+  assert.strictEqual(acMeter.isColdStart, true, 'new AC meter should start in cold-start phase')
   const initialNextCheckAt = lightMeter.nextCheckAt
 
   await saveConfig.main({
@@ -165,6 +168,8 @@ async function testSaveConfigConcurrency() {
   lightMeter.lastError = 'previous error'
   lightMeter.lowPowerNotifiedAt = new Date('2026-09-01T00:30:00.000Z')
   lightMeter.lastRechargeDetectedAt = new Date('2026-09-01T00:45:00.000Z')
+  lightMeter.isColdStart = false
+  acMeter.isColdStart = true
   context.OPENID = 'openid-user-2'
 
   await saveConfig.main({
@@ -178,6 +183,8 @@ async function testSaveConfigConcurrency() {
   assert.strictEqual(lightMeter.lastRemainingKwh, 12, 'existing runtime fields must be preserved')
   assert.strictEqual(lightMeter.failCount, 4, 'existing failCount must be preserved')
   assert.strictEqual(lightMeter.lastError, 'previous error', 'existing lastError must be preserved')
+  assert.strictEqual(lightMeter.isColdStart, false, 'existing stable phase must be preserved')
+  assert.strictEqual(acMeter.isColdStart, true, 'existing cold-start phase must be preserved')
   assert.strictEqual(database.collections.user_configs[1].email, 'second@example.com')
 }
 
@@ -438,6 +445,22 @@ async function testQueryPowerDuplicateKeyRecovery() {
   assert.strictEqual(meter.nextCheckAt.toISOString(), '2026-09-03T00:00:00.000Z')
 }
 
+async function testQueryPowerInitializesColdStartMeter() {
+  const database = new MockDatabase()
+  const { queryPower } = loadCloudFunctions(database, { OPENID: 'unused' })
+
+  await queryPower.updateMeter(database, {
+    meterId: 'QUERY-NEW-001',
+    remainingKwh: 18,
+    ok: true,
+    queriedAt: new Date('2026-09-01T02:00:00.000Z'),
+  }, 'light')
+
+  assert.strictEqual(database.collections.meters.length, 1)
+  assert.strictEqual(database.collections.meters[0].meterId, 'QUERY-NEW-001')
+  assert.strictEqual(database.collections.meters[0].isColdStart, true, 'query-created meter should start in cold-start phase')
+}
+
 async function main() {
   await testSaveConfigConcurrency()
   await testSaveConfigRemovesLegacyFields()
@@ -446,6 +469,7 @@ async function main() {
   await testSaveConfigMarksCleanupPendingForRunningOldMeterJob()
   await testDuplicateKeyRecovery()
   await testQueryPowerDuplicateKeyRecovery()
+  await testQueryPowerInitializesColdStartMeter()
   console.log('OK: meter binding concurrency tests passed.')
 }
 

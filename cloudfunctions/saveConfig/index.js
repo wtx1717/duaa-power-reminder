@@ -154,6 +154,7 @@ async function upsertMeter(db, meterId, type) {
         checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
         estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
         scheduleMode: DEFAULT_SCHEDULE_MODE,
+        isColdStart: true,
         createdAt: now,
         updatedAt: now,
       },

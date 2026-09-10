@@ -406,6 +406,7 @@ async function updateMeter(db, record, type) {
         checkIntervalMinutes: DEFAULT_CHECK_INTERVAL_MINUTES,
         estimatedDailyUsageKwh: DEFAULT_ESTIMATED_DAILY_USAGE_KWH,
         scheduleMode: 'normal',
+        isColdStart: true,
         ...data,
       },
     })

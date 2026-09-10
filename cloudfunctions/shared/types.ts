@@ -42,6 +42,8 @@ export interface Meter {
   checkIntervalMinutes?: number
   estimatedDailyUsageKwh?: number
   scheduleMode?: MeterScheduleMode
+  // 缺失时由调度执行器按冷启动处理；首次有效日耗更新后置为 false。
+  isColdStart?: boolean
   lastRechargeDetectedAt?: Date
   lowPowerNotifiedAt?: Date
   cleanupPending?: boolean
@@ -159,6 +161,8 @@ export interface OpsDashboardSnapshotMeter {
   nextCheckAt: string
   queriedAt: string
   scheduleMode: MeterScheduleMode
+  // 快照始终输出布尔值；数据库缺失字段时由快照生成器归一为 true。
+  isColdStart: boolean
   lastError: string
   latestAddress: string
   latestCutoffTime: string
