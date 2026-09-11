@@ -100,6 +100,7 @@ duaa-power-reminder/
 | `scheduledCheckDispatch` | 按计划分发和执行电量检查 |
 | `sendEmailNotification` | 发送低电量邮件通知 |
 | `scheduledDashboardSnapshot` | 保存每日运营指标快照 |
+| `clearDatabase` | 手动清空所有项目集合中的文档，但保留集合本身 |
 
 ## 开始使用
 
@@ -176,6 +177,8 @@ SMTP_FROM
 6. `scheduledCheck`
 7. `scheduledCheckDispatch`
 8. `scheduledDashboardSnapshot`
+
+`clearDatabase` 不属于正常业务链路，只有在确认备份并暂停相关定时任务后，才应在云开发控制台手动调用。请先为云函数配置环境变量 `CLEAR_DATABASE_CONFIRMATION`，再在调用事件中传入对应的 `confirm` 值。
 
 定时触发器配置位于相应云函数的 `config.json` 中。部署后请在云开发控制台检查触发器是否创建成功，并确认时区与预期执行时间一致。
 
